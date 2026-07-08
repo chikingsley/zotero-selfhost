@@ -7,6 +7,7 @@ import {
   getItemTypeCreatorTypes,
   getItemTypeFields,
   getItemTypes,
+  validAttachmentLinkModes,
   validCreatorTypes,
   validItemTypes,
 } from "../../mappings";
@@ -1773,6 +1774,106 @@ export const validateItemNoteFieldForWrite = (
   return null;
 };
 
+// Official attachment write rules: linkMode required and valid, storage
+// properties only on imported/embedded linkModes, linked files only in user
+// libraries, and embedded images locked to an image type under their parent.
+export const validateAttachmentForWrite = (
+  data: Record<string, unknown>,
+  incoming: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+  libraryType: "group" | "user"
+): { code: number; message: string } | null => {
+  if (data.itemType !== "attachment") {
+    return null;
+  }
+  const linkMode = data.linkMode;
+  if (typeof linkMode !== "string" || linkMode === "") {
+    return { code: 400, message: "'linkMode' property not provided" };
+  }
+  if (!validAttachmentLinkModes.has(linkMode)) {
+    return { code: 400, message: `'${linkMode}' is not a valid linkMode` };
+  }
+  if (libraryType === "group" && linkMode === "linked_file") {
+    return {
+      code: 400,
+      message: "Linked files can only be added to user libraries",
+    };
+  }
+  const allowsStorage =
+    linkMode === "imported_file" ||
+    linkMode === "imported_url" ||
+    linkMode === "embedded_image";
+  if (!allowsStorage) {
+    if (data.md5) {
+      return {
+        code: 400,
+        message:
+          "'md5' is valid only for imported and embedded-image attachments",
+      };
+    }
+    if (data.mtime) {
+      return {
+        code: 400,
+        message:
+          "'mtime' is valid only for imported and embedded-image attachments",
+      };
+    }
+  }
+  if (linkMode === "embedded_image") {
+    const parent = typeof data.parentItem === "string" ? data.parentItem : "";
+    if (!parent) {
+      return {
+        code: 400,
+        message: "Embedded-image attachment must have a parent item",
+      };
+    }
+    if (
+      existing &&
+      "parentItem" in incoming &&
+      incoming.parentItem !== existing.parentItem
+    ) {
+      return {
+        code: 400,
+        message: "Cannot change parent item of embedded-image attachment",
+      };
+    }
+    const contentType =
+      typeof data.contentType === "string" ? data.contentType : "";
+    if (!contentType.startsWith("image/")) {
+      return {
+        code: 400,
+        message: "Embedded-image attachment must have an image content type",
+      };
+    }
+    if (typeof data.note === "string" && data.note !== "") {
+      return {
+        code: 400,
+        message: "'note' property is not valid for embedded images",
+      };
+    }
+  }
+  return null;
+};
+
+// Null storage properties on attachments mean "leave as-is", not "clear".
+export const stripNullAttachmentStorageProps = (
+  object: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined
+) => {
+  const isAttachment =
+    object.itemType === "attachment" || existing?.itemType === "attachment";
+  if (!isAttachment) {
+    return object;
+  }
+  if (object.md5 === null) {
+    delete object.md5;
+  }
+  if (object.mtime === null) {
+    delete object.mtime;
+  }
+  return object;
+};
+
 const maxItemFieldLength = 65_535;
 
 export const validateItemBatchFieldLengthsForWrite = (
@@ -1976,6 +2077,7 @@ export const handleItemBatchWrite = async (
   const finalItems: Record<string, unknown>[] = rawItems.map((object, index) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existingVersions.get(key) : undefined;
+    stripNullAttachmentStorageProps(object, current?.data);
     const merged = current
       ? mergeItemUpdate(current.data, object, key, true)
       : { ...object };
@@ -1986,6 +2088,15 @@ export const handleItemBatchWrite = async (
     const noteFieldFailure = validateItemNoteFieldForWrite(normalized);
     if (noteFieldFailure && !(index in itemFailures)) {
       itemFailures[index] = noteFieldFailure;
+    }
+    const attachmentFailure = validateAttachmentForWrite(
+      normalized,
+      object,
+      current?.data,
+      input.libraryType
+    );
+    if (attachmentFailure && !(index in itemFailures)) {
+      itemFailures[index] = attachmentFailure;
     }
     const timestampFailure = normalizeItemTimestampsForWrite(
       normalized,
@@ -2926,6 +3037,29 @@ export const updateItemInLibrary = async (
   if (noteFieldFailure) {
     return c.text(noteFieldFailure.message, 400);
   }
+  const attachmentFailure = validateAttachmentForWrite(
+    data,
+    editable,
+    existing?.data,
+    input.libraryType
+  );
+  if (attachmentFailure) {
+    return c.text(attachmentFailure.message, 400);
+  }
+
+  // A write that changes nothing effective must not bump the object version.
+  if (
+    existing &&
+    jsonValuesEqual(
+      stripVersionForCompare(data),
+      stripVersionForCompare(existing.data ?? {})
+    )
+  ) {
+    return c.body(null, 204, {
+      "Last-Modified-Version": `${existing.version ?? 0}`,
+    });
+  }
+
   const timestampFailure = normalizeItemTimestampsForWrite(
     data,
     existing?.data,
