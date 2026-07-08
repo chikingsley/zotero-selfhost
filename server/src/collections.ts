@@ -17,7 +17,7 @@ export interface CollectionRecord {
 }
 
 interface CollectionWriteResult {
-  failed: Array<{
+  failed: Record<string, {
     code: number;
     data?: Record<string, unknown>;
     message: string;
@@ -89,14 +89,14 @@ const memoryCollectionStore: CollectionStore = {
     const collections = getMemoryCollections(libraryType, libraryID);
     const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
     const result: CollectionWriteResult = {
-      failed: [],
+      failed: {},
       success: [],
       successful: [],
       unchanged: [],
       version: library.version,
     };
 
-    for (const object of objects) {
+    for (const [index, object] of objects.entries()) {
       const existing =
         typeof object.key === "string" ? collections.get(object.key) : undefined;
       const key = typeof object.key === "string" ? object.key : generateZoteroKey();
@@ -112,7 +112,7 @@ const memoryCollectionStore: CollectionStore = {
         (parentKey) => collections.has(parentKey)
       );
       if (validation) {
-        result.failed.push(validation);
+        result.failed[index] = validation;
         continue;
       }
       const relationValidation = validateObjectRelationsForWrite(
@@ -120,7 +120,7 @@ const memoryCollectionStore: CollectionStore = {
         "collection"
       );
       if (relationValidation) {
-        result.failed.push(relationValidation);
+        result.failed[index] = relationValidation;
         continue;
       }
 
@@ -280,14 +280,14 @@ class D1CollectionStore implements CollectionStore {
     await this.ensureLibrary(libraryType, libraryID);
     let version = await this.getLibraryVersion(libraryType, libraryID);
     const result: CollectionWriteResult = {
-      failed: [],
+      failed: {},
       success: [],
       successful: [],
       unchanged: [],
       version,
     };
 
-    for (const object of objects) {
+    for (const [index, object] of objects.entries()) {
       const existing =
         typeof object.key === "string"
           ? await this.getCollectionRecord(libraryType, libraryID, object.key)
@@ -300,7 +300,7 @@ class D1CollectionStore implements CollectionStore {
       const name = normalizeCollectionName(object.name, existing?.data.name);
       const validation = validateCollectionInput(name, false, () => true);
       if (validation) {
-        result.failed.push(validation);
+        result.failed[index] = validation;
         continue;
       }
       const relationValidation = validateObjectRelationsForWrite(
@@ -308,20 +308,20 @@ class D1CollectionStore implements CollectionStore {
         "collection"
       );
       if (relationValidation) {
-        result.failed.push(relationValidation);
+        result.failed[index] = relationValidation;
         continue;
       }
       if (
         parentCollection &&
         !(await this.collectionExists(libraryType, libraryID, parentCollection))
       ) {
-        result.failed.push({
+        result.failed[index] = {
           code: 409,
           data: {
             collection: parentCollection,
           },
           message: `Parent collection ${parentCollection} not found`,
-        });
+        };
         continue;
       }
 
@@ -1019,8 +1019,8 @@ const validateCollectionInput = (
 
 const sanitizeCollectionData = (
   input: Record<string, unknown>
-): Record<string, unknown> =>
-  sanitizeZoteroData({
+): Record<string, unknown> => {
+  const data = sanitizeZoteroData({
     ...input,
     parentCollection: input.parentCollection || false,
     relations:
@@ -1029,13 +1029,24 @@ const sanitizeCollectionData = (
         : {},
   });
 
+  if (data.deleted === false || data.deleted === 0) {
+    delete data.deleted;
+  } else if (data.deleted === true || data.deleted === 1) {
+    data.deleted = true;
+  }
+
+  return data;
+};
+
 const collectionDataIsUnchanged = (
   previous: Record<string, unknown>,
   next: Record<string, unknown>
-): boolean =>
-  previous.name === next.name &&
-  previous.parentCollection === next.parentCollection &&
-  JSON.stringify(previous.relations ?? {}) === JSON.stringify(next.relations ?? {});
+): boolean => {
+  const { version: _previousVersion, ...previousComparable } = previous;
+  const { version: _nextVersion, ...nextComparable } = next;
+
+  return JSON.stringify(previousComparable) === JSON.stringify(nextComparable);
+};
 
 const extractCollectionKeys = (objects: Record<string, unknown>[]): string[] => {
   const collectionKeys = new Set<string>();

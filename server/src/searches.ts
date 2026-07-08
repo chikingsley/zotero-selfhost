@@ -5,7 +5,7 @@ import { generateZoteroKey, sanitizeZoteroData } from "./zotero";
 
 type LibraryType = "group" | "user";
 
-type SearchFailureCode = 400 | 404 | 412 | 428;
+type SearchFailureCode = 400 | 404 | 412 | 413 | 428;
 
 export interface SearchRecord {
   data: Record<string, unknown>;
@@ -544,6 +544,12 @@ const validateSearchWrite = (
       message: "Search name cannot be empty",
     };
   }
+  if (data.name.length > 255) {
+    return {
+      code: 413,
+      message: "Search name cannot be longer than 255 characters",
+    };
+  }
 
   if (!Array.isArray(data.conditions) || data.conditions.length === 0) {
     return {
@@ -593,13 +599,22 @@ const sanitizeSearchData = (
   version: number,
   object: Record<string, unknown>,
   existing?: SearchRecord
-): Record<string, unknown> =>
-  sanitizeZoteroData({
+): Record<string, unknown> => {
+  const data = sanitizeZoteroData({
     ...(existing?.data ?? {}),
     ...object,
     key,
     version,
   });
+
+  if (data.deleted === false || data.deleted === 0) {
+    delete data.deleted;
+  } else if (data.deleted === true || data.deleted === 1) {
+    data.deleted = true;
+  }
+
+  return data;
+};
 
 const searchDataEqualIgnoringVersion = (
   left: Record<string, unknown>,

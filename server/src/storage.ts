@@ -78,7 +78,10 @@ export interface AttachmentFileRecord {
   mtime: number;
   r2Key: string;
   sizeBytes: number;
+  storageMd5?: string;
+  storageFilename?: string;
   version?: number;
+  zip?: boolean;
 }
 
 interface AttachmentUploadInput {
@@ -113,6 +116,12 @@ interface AttachmentRegistrationResult {
   version: number;
 }
 
+interface AttachmentExistingFileResult {
+  associated: boolean;
+  sizeMismatch?: boolean;
+  version: number;
+}
+
 interface AttachmentObjectResult {
   body: ArrayBuffer | ReadableStream;
   file: AttachmentFileRecord;
@@ -126,6 +135,16 @@ export interface CompatibilityStore {
     input: AttachmentUploadInput,
     uploadBaseURL: string
   ): Promise<AttachmentUploadAuthorization>;
+  associateExistingAttachmentFile(
+    userID: number,
+    itemKey: string,
+    input: AttachmentUploadInput
+  ): Promise<AttachmentExistingFileResult>;
+  associateExistingGroupAttachmentFile(
+    groupID: number,
+    itemKey: string,
+    input: AttachmentUploadInput
+  ): Promise<AttachmentExistingFileResult>;
   authorizeGroupAttachmentUpload(
     groupID: number,
     itemKey: string,
@@ -268,6 +287,162 @@ const getMemoryFileKey = (
   itemKey: string
 ) => `${libraryType}:${libraryID}:${itemKey}`;
 
+const storedAttachmentLinkModes = new Set([
+  "embedded_image",
+  "imported_file",
+  "imported_url",
+]);
+
+const isMemoryStoredFileAttachment = (item: ItemRecord | undefined): boolean =>
+  item?.data.itemType === "attachment" &&
+  typeof item.data.linkMode === "string" &&
+  storedAttachmentLinkModes.has(item.data.linkMode);
+
+const getNonEmptyString = (value: unknown): string | null =>
+  typeof value === "string" && value !== "" ? value : null;
+
+const getMemoryAttachmentFileRecord = (
+  libraryType: "group" | "user",
+  libraryID: number,
+  itemKey: string
+): (AttachmentFileRecord & { body: ArrayBuffer }) | null => {
+  const library = getMemoryLibrary(libraryType, libraryID);
+  const item = library.items.get(itemKey);
+  const fileKey = getMemoryFileKey(libraryType, libraryID, itemKey);
+  const file = memoryFiles.get(fileKey);
+
+  if (!(file && isMemoryStoredFileAttachment(item))) {
+    return null;
+  }
+
+  if (item?.data.md5 !== file.md5) {
+    memoryFiles.delete(fileKey);
+    return null;
+  }
+
+  return file;
+};
+
+const findExistingMemoryFile = (
+  libraryType: "group" | "user",
+  libraryID: number,
+  input: AttachmentUploadInput
+): (AttachmentFileRecord & { body: ArrayBuffer }) | null => {
+  const storageMd5 = input.md5;
+  const zip = Boolean(input.zip);
+
+  for (const [key, file] of memoryFiles.entries()) {
+    const [fileLibraryType, fileLibraryID] = key.split(":");
+    if (
+      fileLibraryType !== libraryType ||
+      Number.parseInt(fileLibraryID ?? "", 10) !== libraryID
+    ) {
+      continue;
+    }
+
+    if (
+      (file.storageMd5 ?? file.md5) === storageMd5 &&
+      Boolean(file.zip) === zip
+    ) {
+      return file;
+    }
+  }
+
+  return null;
+};
+
+const applyAttachmentFileInfoToMemoryItem = (
+  item: ItemRecord | undefined,
+  input: AttachmentUploadInput,
+  version: number
+) => {
+  if (!item) {
+    return {
+      charset: input.charset,
+      contentType: input.contentType,
+    };
+  }
+
+  const charset = input.charset ?? getNonEmptyString(item.data.charset);
+  const contentType = input.contentType ?? getNonEmptyString(item.data.contentType);
+  const data: Record<string, unknown> = {
+    ...item.data,
+    filename: input.itemFilename ?? input.filename,
+    md5: input.itemMd5 ?? input.md5,
+    mtime: input.mtime,
+    version,
+  };
+
+  if (input.contentType !== undefined && input.contentType !== null) {
+    data.contentType = input.contentType;
+  }
+  if (input.charset !== undefined && input.charset !== null) {
+    data.charset = input.charset;
+  }
+
+  item.version = version;
+  item.data = sanitizeZoteroData(data);
+
+  return {
+    charset,
+    contentType,
+  };
+};
+
+const associateExistingMemoryAttachmentFile = (
+  libraryType: "group" | "user",
+  libraryID: number,
+  itemKey: string,
+  input: AttachmentUploadInput
+): AttachmentExistingFileResult => {
+  const library = getMemoryLibrary(libraryType, libraryID);
+  const item = library.items.get(itemKey);
+  const existingFile = findExistingMemoryFile(libraryType, libraryID, input);
+
+  if (!existingFile) {
+    return {
+      associated: false,
+      version: library.version,
+    };
+  }
+
+  if (existingFile.sizeBytes !== input.sizeBytes) {
+    return {
+      associated: false,
+      sizeMismatch: true,
+      version: library.version,
+    };
+  }
+
+  library.version += 1;
+  const { charset, contentType } = applyAttachmentFileInfoToMemoryItem(
+    item,
+    input,
+    library.version
+  );
+
+  memoryFiles.set(getMemoryFileKey(libraryType, libraryID, itemKey), {
+    body: existingFile.body,
+    charset,
+    contentType,
+    filename: input.itemFilename ?? input.filename,
+    itemKey,
+    md5: input.itemMd5 ?? input.md5,
+    mtime: input.mtime,
+    r2Key: existingFile.r2Key,
+    sizeBytes: input.sizeBytes,
+    storageFilename: input.filename,
+    storageMd5: input.md5,
+    version: library.version,
+    zip: Boolean(input.zip),
+  });
+
+  return {
+    associated: true,
+    version: library.version,
+  };
+};
+
 const deleteMemoryItems = (
   libraryType: "group" | "user",
   libraryID: number,
@@ -344,6 +519,14 @@ const memoryStore: CompatibilityStore = {
       uploadKey,
       url: `${uploadBaseURL}/upload/${uploadKey}`,
     };
+  },
+
+  async associateExistingAttachmentFile(userID, itemKey, input) {
+    return associateExistingMemoryAttachmentFile("user", userID, itemKey, input);
+  },
+
+  async associateExistingGroupAttachmentFile(groupID, itemKey, input) {
+    return associateExistingMemoryAttachmentFile("group", groupID, itemKey, input);
   },
 
   async authorizeGroupAttachmentUpload(groupID, itemKey, input, uploadBaseURL) {
@@ -440,7 +623,7 @@ const memoryStore: CompatibilityStore = {
   },
 
   async getAttachmentFile(userID, itemKey) {
-    const file = memoryFiles.get(getMemoryFileKey("user", userID, itemKey));
+    const file = getMemoryAttachmentFileRecord("user", userID, itemKey);
     if (!file) {
       return null;
     }
@@ -450,7 +633,7 @@ const memoryStore: CompatibilityStore = {
   },
 
   async getAttachmentObject(userID, itemKey) {
-    const file = memoryFiles.get(getMemoryFileKey("user", userID, itemKey));
+    const file = getMemoryAttachmentFileRecord("user", userID, itemKey);
     if (!file) {
       return null;
     }
@@ -463,7 +646,7 @@ const memoryStore: CompatibilityStore = {
   },
 
   async getGroupAttachmentFile(groupID, itemKey) {
-    const file = memoryFiles.get(getMemoryFileKey("group", groupID, itemKey));
+    const file = getMemoryAttachmentFileRecord("group", groupID, itemKey);
     if (!file) {
       return null;
     }
@@ -473,7 +656,7 @@ const memoryStore: CompatibilityStore = {
   },
 
   async getGroupAttachmentObject(groupID, itemKey) {
-    const file = memoryFiles.get(getMemoryFileKey("group", groupID, itemKey));
+    const file = getMemoryAttachmentFileRecord("group", groupID, itemKey);
     if (!file) {
       return null;
     }
@@ -879,30 +1062,26 @@ const registerMemoryAttachmentUpload = (
 
   library.version += 1;
   const existing = library.items.get(itemKey);
-  if (existing) {
-    existing.version = library.version;
-    existing.data = sanitizeZoteroData({
-      ...existing.data,
-      charset: upload.charset,
-      contentType: upload.contentType,
-      filename: upload.itemFilename ?? upload.filename,
-      md5: upload.itemMd5 ?? upload.md5,
-      mtime: upload.mtime,
-      version: library.version,
-    });
-  }
+  const { charset, contentType } = applyAttachmentFileInfoToMemoryItem(
+    existing,
+    upload,
+    library.version
+  );
 
   memoryFiles.set(getMemoryFileKey(libraryType, libraryID, itemKey), {
     body: upload.body,
-    charset: upload.charset,
-    contentType: upload.contentType,
+    charset,
+    contentType,
     filename: upload.itemFilename ?? upload.filename,
     itemKey,
     md5: upload.itemMd5 ?? upload.md5,
     mtime: upload.mtime,
     r2Key: upload.r2Key,
     sizeBytes: upload.sizeBytes,
+    storageFilename: upload.filename,
+    storageMd5: upload.md5,
     version: library.version,
+    zip: Boolean(upload.zip),
   });
   memoryUploads.delete(uploadKey);
 
@@ -1029,6 +1208,30 @@ class D1CompatibilityStore implements CompatibilityStore {
       suffix: "",
       uploadKey,
       url: `${uploadBaseURL}/upload/${uploadKey}`,
+    };
+  }
+
+  async associateExistingAttachmentFile(
+    userID: number,
+    _itemKey: string,
+    _input: AttachmentUploadInput
+  ): Promise<AttachmentExistingFileResult> {
+    await this.ensureUserLibrary(userID);
+    return {
+      associated: false,
+      version: await this.getLibraryVersion("user", userID),
+    };
+  }
+
+  async associateExistingGroupAttachmentFile(
+    groupID: number,
+    _itemKey: string,
+    _input: AttachmentUploadInput
+  ): Promise<AttachmentExistingFileResult> {
+    await this.ensureGroupLibrary(groupID);
+    return {
+      associated: false,
+      version: await this.getLibraryVersion("group", groupID),
     };
   }
 

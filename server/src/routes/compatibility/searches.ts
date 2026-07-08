@@ -1,8 +1,152 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getIfUnmodifiedSinceVersion, checkSingleObjectWriteVersion, normalizeObjectDeletedForWrite, normalizeObjectBatchDeletedForWrite, renderJSONAtomEntry, atomHeaders, wantsAtomResponse, isHeadRequest, settingHeaders, isSettingsObject, getRequestedSearchKeys, getSearchSinceVersion, withSearchSchema, renderSearchList, renderSearchWriteResult, parseSearchWriteBody } from "./shared";
+import type { Context } from "hono";
+import type { Bindings } from "../../bindings";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getIfUnmodifiedSinceVersion, checkSingleObjectWriteVersion, normalizeObjectDeletedForWrite, renderJSONAtomEntry, atomHeaders, wantsAtomResponse, isHeadRequest, settingHeaders, isSettingsObject, getRequestedSearchKeys, getSearchSinceVersion, withSearchSchema, renderSearchList, parseSearchWriteBody, buildWriteReport, evaluateBatchWritePreconditions, isRecord, jsonValuesEqual, type ExistingObjectVersions, type ItemWriteFailures } from "./shared";
 import { createSearchStore } from "../../searches";
 import { createCompatibilityStore } from "../../storage";
 import { compatibility } from "./router";
 
+type LibraryType = "group" | "user";
+
+const stripVersionForCompare = (data: Record<string, unknown>) => {
+  const { version: _version, ...rest } = data;
+  return rest;
+};
+
+const mergeWriteFailures = (
+  target: ItemWriteFailures,
+  source: ItemWriteFailures
+) => {
+  for (const [index, failure] of Object.entries(source)) {
+    if (!(index in target)) {
+      target[index] = failure;
+    }
+  }
+};
+
+const mapStoreFailuresToOriginalIndexes = (
+  failed: ItemWriteFailures,
+  written: Array<{ index: number; object: Record<string, unknown> }>
+): ItemWriteFailures => {
+  const mapped: ItemWriteFailures = {};
+  for (const [position, failure] of Object.entries(failed)) {
+    const originalIndex = written[Number(position)]?.index ?? Number(position);
+    mapped[originalIndex] = failure;
+  }
+  return mapped;
+};
+
+const handleSearchBatchWrite = async (
+  c: Context<{ Bindings: Bindings }>,
+  input: {
+    libraryID: number;
+    libraryType: LibraryType;
+  }
+) => {
+  const body = await parseSearchWriteBody(c);
+  if (!Array.isArray(body)) {
+    return c.text("Uploaded data must be a JSON array", 400);
+  }
+
+  const failed: ItemWriteFailures = {};
+  const rawSearches = (body as unknown[]).map((entry, index) => {
+    if (isRecord(entry)) {
+      return { ...entry };
+    }
+    failed[index] = {
+      code: 400,
+      message: `Invalid value for index ${index} in uploaded data; expected JSON search object`,
+    };
+    return {};
+  });
+
+  const searchStore = createSearchStore(c.env);
+  const library = await searchStore.listSearches(input.libraryType, input.libraryID);
+  const existingVersions: ExistingObjectVersions = new Map(
+    library.searches.map((search) => [
+      search.key,
+      { data: search.data ?? {}, version: search.version ?? 0 },
+    ])
+  );
+  const precondition = evaluateBatchWritePreconditions(
+    rawSearches,
+    existingVersions,
+    library.version,
+    getIfUnmodifiedSinceVersion(c),
+    "Search"
+  );
+  if (precondition.libraryPreconditionFailed) {
+    return c.text("Library has been modified", 412, settingHeaders(library.version));
+  }
+  mergeWriteFailures(failed, precondition.failed);
+
+  const finalSearches = rawSearches.map((object) => {
+    const key = typeof object.key === "string" ? object.key : "";
+    const current = key ? existingVersions.get(key) : undefined;
+    return current
+      ? { ...current.data, ...object, key }
+      : { ...object };
+  });
+
+  const unchanged: Record<string, string> = { ...precondition.unchanged };
+  const toWrite: Array<{ index: number; object: Record<string, unknown> }> = [];
+  for (const entry of precondition.toWrite) {
+    if (entry.index in failed) {
+      continue;
+    }
+    const final = finalSearches[entry.index];
+    if (!final) {
+      continue;
+    }
+    const key = typeof final.key === "string" ? final.key : "";
+    const current = key ? existingVersions.get(key) : undefined;
+    const comparableFinal = normalizeObjectDeletedForWrite({ ...final });
+    if (
+      current &&
+      jsonValuesEqual(
+        stripVersionForCompare(comparableFinal),
+        stripVersionForCompare(current.data)
+      )
+    ) {
+      unchanged[entry.index] = key;
+      continue;
+    }
+    toWrite.push({ index: entry.index, object: final });
+  }
+
+  const result = toWrite.length
+    ? await searchStore.upsertSearches(
+        input.libraryType,
+        input.libraryID,
+        toWrite.map((entry) => entry.object),
+        getIfUnmodifiedSinceVersion(c)
+      )
+    : {
+        failed: {} as ItemWriteFailures,
+        preconditionFailed: false,
+        success: [] as string[],
+        successful: [] as never[],
+        unchanged: [] as never[],
+        version: library.version,
+      };
+  if (result.preconditionFailed) {
+    return c.text("Library has been modified", 412, settingHeaders(result.version));
+  }
+
+  mergeWriteFailures(
+    failed,
+    mapStoreFailuresToOriginalIndexes(result.failed, toWrite)
+  );
+
+  const successfulWrites = toWrite.filter(
+    (_entry, position) => !(position in result.failed)
+  );
+
+  return c.json(
+    buildWriteReport(successfulWrites, result.successful, failed, unchanged),
+    200,
+    settingHeaders(result.version)
+  );
+};
 
 compatibility.get("/groups/:groupID/searches/:searchKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -214,25 +358,10 @@ compatibility.post("/groups/:groupID/searches", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const body = await parseSearchWriteBody(c);
-  if (!Array.isArray(body)) {
-    return c.text("Expected a search array", 400);
-  }
-
-  const searches = normalizeObjectBatchDeletedForWrite(
-    body as Record<string, unknown>[]
-  );
-  const result = await createSearchStore(c.env).upsertSearches(
-    "group",
-    groupID,
-    searches,
-    getIfUnmodifiedSinceVersion(c)
-  );
-  if (result.preconditionFailed) {
-    return c.text("Library has been modified", 412);
-  }
-
-  return renderSearchWriteResult(c, result);
+  return handleSearchBatchWrite(c, {
+    libraryID: groupID,
+    libraryType: "group",
+  });
 });
 
 
@@ -471,25 +600,10 @@ compatibility.post("/users/:userID/searches", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const body = await parseSearchWriteBody(c);
-  if (!Array.isArray(body)) {
-    return c.text("Expected a search array", 400);
-  }
-
-  const searches = normalizeObjectBatchDeletedForWrite(
-    body as Record<string, unknown>[]
-  );
-  const result = await createSearchStore(c.env).upsertSearches(
-    "user",
-    userID,
-    searches,
-    getIfUnmodifiedSinceVersion(c)
-  );
-  if (result.preconditionFailed) {
-    return c.text("Library has been modified", 412);
-  }
-
-  return renderSearchWriteResult(c, result);
+  return handleSearchBatchWrite(c, {
+    libraryID: userID,
+    libraryType: "user",
+  });
 });
 
 

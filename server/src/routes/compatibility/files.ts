@@ -1,7 +1,82 @@
 import { parseNumericID, requireUser, requireUserWrite, isValidMd5, supportedPartialUploadAlgorithms, parseFileParams, getUploadBaseURL, getRawFileURL, getPublicationRawFileURL, getGroupUploadBaseURL, getGroupRawFileURL, parseUploadBody, responseBodyToArrayBuffer, formatAttachmentContentType, requireSignedRawFileURL, checkStorageQuota, requireGroup, requireGroupFileEdit, getPublicationItem, renderPublicationItemAtom, withPublicationLinks } from "./shared";
 import { applyZoteroPatch, PatchAlgorithmUnavailableError } from "../../patch";
-import { createCompatibilityStore } from "../../storage";
+import { createCompatibilityStore, type AttachmentFileRecord, type CompatibilityStore } from "../../storage";
 import { compatibility } from "./router";
+
+type AttachmentUploadInput = Parameters<
+  CompatibilityStore["authorizeAttachmentUpload"]
+>[2];
+
+const storedFileLinkModes = new Set([
+  "embedded_image",
+  "imported_file",
+  "imported_url",
+]);
+
+const getSingleItemData = (
+  result: Awaited<ReturnType<CompatibilityStore["getItem"]>>
+) => result?.items[0]?.data ?? null;
+
+const isStoredFileAttachmentData = (
+  data: Record<string, unknown> | null
+): boolean =>
+  data?.itemType === "attachment" &&
+  typeof data.linkMode === "string" &&
+  storedFileLinkModes.has(data.linkMode);
+
+const buildAttachmentUploadInput = (
+  params: URLSearchParams,
+  md5: string,
+  filename: string,
+  sizeBytes: number,
+  mtime: string,
+  zipMd5: string | null,
+  zipFilename: string | null
+): AttachmentUploadInput => ({
+  charset: params.get("charset"),
+  contentType: params.get("contentType"),
+  filename: zipFilename ?? filename,
+  itemFilename: zipFilename ? filename : null,
+  itemMd5: zipMd5 ? md5 : null,
+  md5: zipMd5 ?? md5,
+  mtime: Number.parseInt(mtime, 10),
+  sizeBytes,
+  zip: params.get("zip") === "1" || Boolean(zipMd5),
+});
+
+const rawAttachmentContentType = (file: AttachmentFileRecord): string =>
+  file.zip ? "application/zip" : formatAttachmentContentType(file);
+
+const attachmentDownloadHeaders = (file: AttachmentFileRecord) => ({
+  "Zotero-File-Compressed": file.zip ? "Yes" : "No",
+  "Zotero-File-MD5": file.md5,
+  "Zotero-File-Modification-Time": `${file.mtime}`,
+  "Zotero-File-Size": `${file.sizeBytes}`,
+});
+
+const redirectToAttachment = (url: string, file: AttachmentFileRecord) =>
+  new Response(null, {
+    headers: {
+      Location: url,
+      ...attachmentDownloadHeaders(file),
+    },
+    status: 302,
+  });
+
+const rejectNonStoredAttachment = (
+  data: Record<string, unknown> | null
+): Response | null => {
+  if (!data || data.itemType !== "attachment") {
+    return new Response("Item is not an attachment", { status: 400 });
+  }
+  if (!isStoredFileAttachmentData(data)) {
+    return new Response("Cannot upload file for linked file/URL attachment item", {
+      status: 400,
+    });
+  }
+
+  return null;
+};
 
 
 compatibility.post(
@@ -64,7 +139,7 @@ compatibility.get(
 
     return c.body(result.body, 200, {
       "Content-Disposition": `inline; filename="${result.file.filename}"`,
-      "Content-Type": formatAttachmentContentType(result.file),
+      "Content-Type": rawAttachmentContentType(result.file),
     });
   }
 );
@@ -80,7 +155,7 @@ compatibility.get(
 
     const store = createCompatibilityStore(c.env);
     if (!(await requireGroup(c, store, groupID))) {
-      return c.text("Invalid key", 403);
+      return c.text("File not found", 404);
     }
 
     const file = await store.getGroupAttachmentFile(
@@ -112,7 +187,7 @@ compatibility.get("/groups/:groupID/items/:itemKey/file/view", async (c) => {
 
   const store = createCompatibilityStore(c.env);
   if (!(await requireGroup(c, store, groupID))) {
-    return c.text("Invalid key", 403);
+    return c.text("File not found", 404);
   }
 
   const file = await store.getGroupAttachmentFile(
@@ -138,12 +213,19 @@ compatibility.patch("/groups/:groupID/items/:itemKey/file", async (c) => {
 
   const store = createCompatibilityStore(c.env);
   if (!(await requireGroup(c, store, groupID))) {
-    return c.text("Invalid key", 403);
+    return c.text("File not found", 404);
   }
 
   const itemKey = c.req.param("itemKey");
-  if (!(await store.getGroupItem(groupID, itemKey))) {
+  const itemResult = await store.getGroupItem(groupID, itemKey);
+  if (!itemResult) {
     return c.text("Item not found", 404);
+  }
+  const nonStoredAttachmentResponse = rejectNonStoredAttachment(
+    getSingleItemData(itemResult)
+  );
+  if (nonStoredAttachmentResponse) {
+    return nonStoredAttachmentResponse;
   }
 
   const uploadKey = c.req.query("upload");
@@ -232,7 +314,7 @@ compatibility.get("/groups/:groupID/items/:itemKey/file", async (c) => {
 
   const store = createCompatibilityStore(c.env);
   if (!(await requireGroup(c, store, groupID))) {
-    return c.text("Invalid key", 403);
+    return c.text("File not found", 404);
   }
 
   const file = await store.getGroupAttachmentFile(
@@ -243,9 +325,15 @@ compatibility.get("/groups/:groupID/items/:itemKey/file", async (c) => {
     return c.text("File not found", 404);
   }
 
-  return c.redirect(
-    await getGroupRawFileURL(c, groupID, c.req.param("itemKey"), file.md5, file.filename),
-    302
+  return redirectToAttachment(
+    await getGroupRawFileURL(
+      c,
+      groupID,
+      c.req.param("itemKey"),
+      file.md5,
+      file.filename
+    ),
+    file
   );
 });
 
@@ -262,8 +350,15 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
   }
 
   const itemKey = c.req.param("itemKey");
-  if (!(await store.getGroupItem(groupID, itemKey))) {
+  const itemResult = await store.getGroupItem(groupID, itemKey);
+  if (!itemResult) {
     return c.text("Item not found", 404);
+  }
+  const nonStoredAttachmentResponse = rejectNonStoredAttachment(
+    getSingleItemData(itemResult)
+  );
+  if (nonStoredAttachmentResponse) {
+    return nonStoredAttachmentResponse;
   }
 
   const params = await parseFileParams(c);
@@ -353,11 +448,15 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
     return c.text("Invalid file size", 400);
   }
 
-  if (existingFile && existingFile.md5 === md5) {
-    return c.json({ exists: 1 }, 200, {
-      "Last-Modified-Version": `${existingFile.version ?? 0}`,
-    });
-  }
+  const uploadInput = buildAttachmentUploadInput(
+    params,
+    md5,
+    filename,
+    sizeBytes,
+    mtime,
+    zipMd5,
+    zipFilename
+  );
 
   const quotaUserID = await store.getGroupOwnerUserID(groupID);
   if (quotaUserID === null) {
@@ -368,20 +467,24 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
     return quotaError;
   }
 
+  const existingAssociation = await store.associateExistingGroupAttachmentFile(
+    groupID,
+    itemKey,
+    uploadInput
+  );
+  if (existingAssociation.sizeMismatch) {
+    return c.text("Specified file size incorrect for known file", 400);
+  }
+  if (existingAssociation.associated) {
+    return c.json({ exists: 1 }, 200, {
+      "Last-Modified-Version": `${existingAssociation.version}`,
+    });
+  }
+
   const authorization = await store.authorizeGroupAttachmentUpload(
     groupID,
     itemKey,
-    {
-      charset: params.get("charset"),
-      contentType: params.get("contentType"),
-      filename: zipFilename ?? filename,
-      itemFilename: zipFilename ? filename : null,
-      itemMd5: zipMd5 ? md5 : null,
-      md5: zipMd5 ?? md5,
-      mtime: Number.parseInt(mtime, 10),
-      sizeBytes,
-      zip: params.get("zip") === "1" || Boolean(zipMd5),
-    },
+    uploadInput,
     getGroupUploadBaseURL(c, groupID, itemKey)
   );
 
@@ -463,7 +566,7 @@ compatibility.get(
 
     return c.body(result.body, 200, {
       "Content-Disposition": `inline; filename="${result.file.filename}"`,
-      "Content-Type": formatAttachmentContentType(result.file),
+      "Content-Type": rawAttachmentContentType(result.file),
     });
   }
 );
@@ -637,7 +740,7 @@ compatibility.get(
 
     return c.body(result.body, 200, {
       "Content-Disposition": `inline; filename="${result.file.filename}"`,
-      "Content-Type": formatAttachmentContentType(result.file),
+      "Content-Type": rawAttachmentContentType(result.file),
     });
   }
 );
@@ -681,9 +784,15 @@ compatibility.get("/users/:userID/items/:itemKey/file/view", async (c) => {
     return c.text("File not found", 404);
   }
 
-  return c.redirect(
-    await getRawFileURL(c, userID, c.req.param("itemKey"), file.md5, file.filename),
-    302
+  return redirectToAttachment(
+    await getRawFileURL(
+      c,
+      userID,
+      c.req.param("itemKey"),
+      file.md5,
+      file.filename
+    ),
+    file
   );
 });
 
@@ -723,8 +832,15 @@ compatibility.patch("/users/:userID/items/:itemKey/file", async (c) => {
   }
 
   const itemKey = c.req.param("itemKey");
-  if (!(await store.getItem(userID, itemKey))) {
+  const itemResult = await store.getItem(userID, itemKey);
+  if (!itemResult) {
     return c.text("Item not found", 404);
+  }
+  const nonStoredAttachmentResponse = rejectNonStoredAttachment(
+    getSingleItemData(itemResult)
+  );
+  if (nonStoredAttachmentResponse) {
+    return nonStoredAttachmentResponse;
   }
 
   const uploadKey = c.req.query("upload");
@@ -813,8 +929,15 @@ compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
   }
 
   const itemKey = c.req.param("itemKey");
-  if (!(await store.getItem(userID, itemKey))) {
+  const itemResult = await store.getItem(userID, itemKey);
+  if (!itemResult) {
     return c.text("Item not found", 404);
+  }
+  const nonStoredAttachmentResponse = rejectNonStoredAttachment(
+    getSingleItemData(itemResult)
+  );
+  if (nonStoredAttachmentResponse) {
+    return nonStoredAttachmentResponse;
   }
 
   const params = await parseFileParams(c);
@@ -904,31 +1027,39 @@ compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
     return c.text("Invalid file size", 400);
   }
 
-  if (existingFile && existingFile.md5 === md5) {
-    return c.json({ exists: 1 }, 200, {
-      "Last-Modified-Version": `${existingFile.version ?? 0}`,
-    });
-  }
+  const uploadInput = buildAttachmentUploadInput(
+    params,
+    md5,
+    filename,
+    sizeBytes,
+    mtime,
+    zipMd5,
+    zipFilename
+  );
 
   const quotaError = await checkStorageQuota(c, store, userID, sizeBytes);
   if (quotaError) {
     return quotaError;
   }
 
+  const existingAssociation = await store.associateExistingAttachmentFile(
+    userID,
+    itemKey,
+    uploadInput
+  );
+  if (existingAssociation.sizeMismatch) {
+    return c.text("Specified file size incorrect for known file", 400);
+  }
+  if (existingAssociation.associated) {
+    return c.json({ exists: 1 }, 200, {
+      "Last-Modified-Version": `${existingAssociation.version}`,
+    });
+  }
+
   const authorization = await store.authorizeAttachmentUpload(
     userID,
     itemKey,
-    {
-      charset: params.get("charset"),
-      contentType: params.get("contentType"),
-      filename: zipFilename ?? filename,
-      itemFilename: zipFilename ? filename : null,
-      itemMd5: zipMd5 ? md5 : null,
-      md5: zipMd5 ?? md5,
-      mtime: Number.parseInt(mtime, 10),
-      sizeBytes,
-      zip: params.get("zip") === "1" || Boolean(zipMd5),
-    },
+    uploadInput,
     getUploadBaseURL(c, userID, itemKey)
   );
 
