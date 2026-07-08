@@ -1,7 +1,7 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, requireGroupAdmin, getIfUnmodifiedSinceVersion, settingHeaders, renderSettingsList, getSinceVersion, getRequestedSettingKeys, isSettingsObject, parseSettingsBody, renderSettingsWriteFailure, ensureSingleSettingPrecondition } from "./shared";
-import { createSettingsStore, isAdminOnlySettingKey, type SettingFailure, type SettingPayload } from "../../settings";
-import { createCompatibilityStore } from "../../storage";
-import { compatibility } from "./router";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, requireGroupAdmin, getIfUnmodifiedSinceVersion, settingHeaders, renderSettingsList, getSinceVersion, getRequestedSettingKeys, isSettingsObject, parseSettingsBody, renderSettingsWriteFailure, ensureSingleSettingPrecondition } from "../shared";
+import { createSettingsStore, isAdminOnlySettingKey, type SettingFailure, type SettingPayload } from "../../../settings";
+import { createCompatibilityStore } from "../../../storage";
+import { compatibility } from "../router";
 
 
 compatibility.get("/groups/:groupID/settings/:settingKey", async (c) => {

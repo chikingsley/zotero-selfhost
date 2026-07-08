@@ -1,8 +1,8 @@
-import { parseNumericID, requireUser, requireGroup, renderTagList, getURLSearchParams, settingHeaders, getRequestedSearchKeys, getSearchSinceVersion, renderSearchList } from "./shared";
-import { createSearchStore } from "../../searches";
-import { createCompatibilityStore } from "../../storage";
-import { listTagsForRequest } from "../../tags";
-import { compatibility } from "./router";
+import { parseNumericID, requireUser, requireGroup, renderTagList, getURLSearchParams, settingHeaders, getRequestedSearchKeys, getSearchSinceVersion, renderSearchList } from "../shared";
+import { createSearchStore } from "../../../searches";
+import { createCompatibilityStore } from "../../../storage";
+import { listTagsForRequest } from "../../../tags";
+import { compatibility } from "../router";
 
 
 

@@ -1,7 +1,7 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, settingHeaders, getRequiredSinceVersion, getItemKeysForDelete, deleteItemsForLibrary } from "./shared";
-import { createDeletedStore } from "../../deleted";
-import { createCompatibilityStore } from "../../storage";
-import { compatibility } from "./router";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, settingHeaders, getRequiredSinceVersion, getItemKeysForDelete, deleteItemsForLibrary } from "../shared";
+import { createDeletedStore } from "../../../deleted";
+import { createCompatibilityStore } from "../../../storage";
+import { compatibility } from "../router";
 
 
 compatibility.get("/groups/:groupID/deleted", async (c) => {

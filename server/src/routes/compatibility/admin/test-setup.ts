@@ -1,11 +1,11 @@
-import { registerUserIdentity, requireRoot } from "./shared";
-import { clearMemoryCollections } from "../../collections";
-import { clearMemoryDeleted } from "../../deleted";
-import { clearMemorySearches } from "../../searches";
-import { clearMemorySettings } from "../../settings";
-import { createCompatibilityStore } from "../../storage";
-import { generateZoteroKey } from "../../zotero";
-import { compatibility } from "./router";
+import { registerUserIdentity, requireRoot } from "../shared";
+import { clearMemoryCollections } from "../../../collections";
+import { clearMemoryDeleted } from "../../../deleted";
+import { clearMemorySearches } from "../../../searches";
+import { clearMemorySettings } from "../../../settings";
+import { createCompatibilityStore } from "../../../storage";
+import { generateZoteroKey } from "../../../zotero";
+import { compatibility } from "../router";
 
 
 compatibility.post("/test/setup", async (c) => {

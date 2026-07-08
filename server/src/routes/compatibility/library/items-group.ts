@@ -1,12 +1,12 @@
-import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
-import { createCollectionStore } from "../../collections";
-import { createFullTextStore } from "../../fulltext";
-import { createCompatibilityStore } from "../../storage";
-import { validateItemBatchRelationsForWrite } from "../../relations";
-import { validateItemBatchNotesForWrite } from "../../notes";
-import { notificationHeaders, topicUpdatedNotification } from "../../notifications";
-import { normalizeItemBatchTagsForWrite } from "../../tags";
-import { compatibility } from "./router";
+import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "../shared";
+import { createCollectionStore } from "../../../collections";
+import { createFullTextStore } from "../../../fulltext";
+import { createCompatibilityStore } from "../../../storage";
+import { validateItemBatchRelationsForWrite } from "../../../relations";
+import { validateItemBatchNotesForWrite } from "../../../notes";
+import { notificationHeaders, topicUpdatedNotification } from "../../../notifications";
+import { normalizeItemBatchTagsForWrite } from "../../../tags";
+import { compatibility } from "../router";
 
 
 compatibility.get("/groups/:groupID/items/:itemKey", async (c) => {

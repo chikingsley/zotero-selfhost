@@ -1,6 +1,6 @@
-import { getCreatorFields, getItemFields, getItemTypeCreatorTypes, getItemTypeFields, getItemTypes, validItemTypes } from "../../mappings";
-import { getItemTemplate, isSupportedAnnotationType, isSupportedAttachmentLinkMode } from "../../zotero";
-import { compatibility } from "./router";
+import { getCreatorFields, getItemFields, getItemTypeCreatorTypes, getItemTypeFields, getItemTypes, validItemTypes } from "../../../mappings";
+import { getItemTemplate, isSupportedAnnotationType, isSupportedAttachmentLinkMode } from "../../../zotero";
+import { compatibility } from "../router";
 
 
 compatibility.get("/itemTypes", (c) =>

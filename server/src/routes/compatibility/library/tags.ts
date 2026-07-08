@@ -1,13 +1,13 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, attachItemsMeta, renderItemList, filterItemsForRequest, resolveTopLevelItems, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "./shared";
-import { createCollectionStore } from "../../collections";
-import { createCompatibilityStore } from "../../storage";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, attachItemsMeta, renderItemList, filterItemsForRequest, resolveTopLevelItems, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "../shared";
+import { createCollectionStore } from "../../../collections";
+import { createCompatibilityStore } from "../../../storage";
 import {
   filterTopItems,
   hasNegatedTagExpressions,
   itemMatchesTagFilterExpressions,
   listTagsForRequest,
-} from "../../tags";
-import { compatibility } from "./router";
+} from "../../../tags";
+import { compatibility } from "../router";
 
 
 const requestIncludesTrashed = (c: Parameters<typeof getURLSearchParams>[0]) =>

@@ -1,5 +1,5 @@
-import { ttsVoices, validTTSVoices, requireTTSAccess, getTTSTestKey, getTTSAudioID, localSilentWav, isRecord } from "./shared";
-import { compatibility } from "./router";
+import { ttsVoices, validTTSVoices, requireTTSAccess, getTTSTestKey, getTTSAudioID, localSilentWav, isRecord } from "../shared";
+import { compatibility } from "../router";
 
 
 compatibility.get("/tts/voices", (c) => c.json(ttsVoices));

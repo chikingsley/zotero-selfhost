@@ -1,7 +1,7 @@
-import { parseNumericID, requireUser, requireUserWrite, isValidMd5, supportedPartialUploadAlgorithms, parseFileParams, getUploadBaseURL, getRawFileURL, getPublicationRawFileURL, getGroupUploadBaseURL, getGroupRawFileURL, parseUploadBody, responseBodyToArrayBuffer, formatAttachmentContentType, requireSignedRawFileURL, checkStorageQuota, requireGroup, requireGroupFileEdit, getPublicationItem, renderPublicationItemAtom, withPublicationLinks } from "./shared";
-import { applyZoteroPatch, PatchAlgorithmUnavailableError } from "../../patch";
-import { createCompatibilityStore, type AttachmentFileRecord, type CompatibilityStore } from "../../storage";
-import { compatibility } from "./router";
+import { parseNumericID, requireUser, requireUserWrite, isValidMd5, supportedPartialUploadAlgorithms, parseFileParams, getUploadBaseURL, getRawFileURL, getPublicationRawFileURL, getGroupUploadBaseURL, getGroupRawFileURL, parseUploadBody, responseBodyToArrayBuffer, formatAttachmentContentType, requireSignedRawFileURL, checkStorageQuota, requireGroup, requireGroupFileEdit, getPublicationItem, renderPublicationItemAtom, withPublicationLinks } from "../shared";
+import { applyZoteroPatch, PatchAlgorithmUnavailableError } from "../../../patch";
+import { createCompatibilityStore, type AttachmentFileRecord, type CompatibilityStore } from "../../../storage";
+import { compatibility } from "../router";
 
 type AttachmentUploadInput = Parameters<
   CompatibilityStore["authorizeAttachmentUpload"]

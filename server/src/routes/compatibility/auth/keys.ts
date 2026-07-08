@@ -1,8 +1,8 @@
-import { parseNumericID, readKeyRequestBody, requireKeyRoot, getLoginBaseURL, keyAccessNotificationHeaders } from "./shared";
-import { getRequestApiKey, isRootRequest } from "../../auth";
-import { createKeyStore, managedKeyInfo, publicKeyInfo } from "../../keys";
-import { createCompatibilityStore } from "../../storage";
-import { compatibility } from "./router";
+import { parseNumericID, readKeyRequestBody, requireKeyRoot, getLoginBaseURL, keyAccessNotificationHeaders } from "../shared";
+import { getRequestApiKey, isRootRequest } from "../../../auth";
+import { createKeyStore, managedKeyInfo, publicKeyInfo } from "../../../keys";
+import { createCompatibilityStore } from "../../../storage";
+import { compatibility } from "../router";
 
 
 compatibility.get("/keys/current", async (c) => {

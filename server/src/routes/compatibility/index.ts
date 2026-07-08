@@ -1,19 +1,21 @@
+// Route modules are imported in their original registration order — Hono
+// match precedence depends on it. Keep this order when moving modules.
 import "./middleware";
-import "./test-setup";
-import "./tts";
-import "./keys";
-import "./settings";
-import "./tags";
-import "./searches";
-import "./deleted";
-import "./head-parity";
-import "./children";
-import "./metadata";
-import "./collections";
-import "./item-mutations";
-import "./files";
-import "./items-group";
-import "./groups";
-import "./items-user";
+import "./admin/test-setup";
+import "./admin/tts";
+import "./auth/keys";
+import "./library/settings";
+import "./library/tags";
+import "./library/searches";
+import "./library/deleted";
+import "./library/head-parity";
+import "./library/children";
+import "./library/metadata";
+import "./library/collections";
+import "./library/item-mutations";
+import "./files/files";
+import "./library/items-group";
+import "./groups/groups";
+import "./library/items-user";
 
 export { compatibility } from "./router";

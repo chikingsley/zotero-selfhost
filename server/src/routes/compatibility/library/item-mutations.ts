@@ -1,6 +1,6 @@
-import { parseNumericID, requireUserWrite, requireGroupEdit, updateItemInLibrary } from "./shared";
-import { createCompatibilityStore } from "../../storage";
-import { compatibility } from "./router";
+import { parseNumericID, requireUserWrite, requireGroupEdit, updateItemInLibrary } from "../shared";
+import { createCompatibilityStore } from "../../../storage";
+import { compatibility } from "../router";
 
 
 compatibility.patch("/groups/:groupID/items/:itemKey", async (c) => {

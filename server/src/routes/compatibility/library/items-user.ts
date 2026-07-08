@@ -1,12 +1,12 @@
-import { parseNumericID, requireUser, requireUserWrite, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
-import { createCollectionStore } from "../../collections";
-import { createFullTextStore } from "../../fulltext";
-import { createCompatibilityStore } from "../../storage";
-import { validateItemBatchRelationsForWrite } from "../../relations";
-import { validateItemBatchNotesForWrite } from "../../notes";
-import { notificationHeaders, topicUpdatedNotification } from "../../notifications";
-import { normalizeItemBatchTagsForWrite } from "../../tags";
-import { compatibility } from "./router";
+import { parseNumericID, requireUser, requireUserWrite, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "../shared";
+import { createCollectionStore } from "../../../collections";
+import { createFullTextStore } from "../../../fulltext";
+import { createCompatibilityStore } from "../../../storage";
+import { validateItemBatchRelationsForWrite } from "../../../relations";
+import { validateItemBatchNotesForWrite } from "../../../notes";
+import { notificationHeaders, topicUpdatedNotification } from "../../../notifications";
+import { normalizeItemBatchTagsForWrite } from "../../../tags";
+import { compatibility } from "../router";
 
 
 compatibility.get("/users/:userID/items/:itemKey", async (c) => {
