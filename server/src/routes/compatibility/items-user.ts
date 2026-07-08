@@ -33,10 +33,11 @@ compatibility.get("/users/:userID/items/:itemKey", async (c) => {
   const library = await store.listItems(userID);
   return renderSingleItem(
     c,
-    attachItemMeta(c, item, {
+    await attachItemMeta(c, item, {
       allItems: library.items,
       libraryID: userID,
       libraryType: "user",
+      store,
     }),
     result.version
   );

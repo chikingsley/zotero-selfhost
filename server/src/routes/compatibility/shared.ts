@@ -15,6 +15,7 @@ import {
   isBibliographyContent,
   isExportFormat,
   renderExportBody,
+  renderItemAtomEntryDocument,
   renderItemAtomFeed,
   withItemIncludes,
 } from "../../exports";
@@ -271,25 +272,42 @@ export const parseUploadBody = async (request: Request): Promise<ArrayBuffer> =>
     return request.arrayBuffer();
   }
 
-  const text = await request.text();
-  const filePartStart = text.indexOf('name="file"');
+  // Parse on raw bytes: decoding as text corrupts binary payloads (ZIPs).
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  const encoder = new TextEncoder();
+  const findBytes = (needle: Uint8Array, from: number): number => {
+    outer: for (let i = from; i <= bytes.length - needle.length; i++) {
+      for (let j = 0; j < needle.length; j++) {
+        if (bytes[i + j] !== needle[j]) {
+          continue outer;
+        }
+      }
+      return i;
+    }
+    return -1;
+  };
+
+  const filePartStart = findBytes(encoder.encode('name="file"'), 0);
   if (filePartStart === -1) {
     return new ArrayBuffer(0);
   }
 
-  const bodyStart = text.indexOf("\r\n\r\n", filePartStart);
+  const bodyStart = findBytes(encoder.encode("\r\n\r\n"), filePartStart);
   if (bodyStart === -1) {
     return new ArrayBuffer(0);
   }
 
   const contentStart = bodyStart + 4;
-  const boundaryStart = text.indexOf(`\r\n--${boundary}`, contentStart);
+  const boundaryStart = findBytes(
+    encoder.encode(`\r\n--${boundary}`),
+    contentStart
+  );
   const content =
     boundaryStart === -1
-      ? text.slice(contentStart)
-      : text.slice(contentStart, boundaryStart);
+      ? bytes.slice(contentStart)
+      : bytes.slice(contentStart, boundaryStart);
 
-  return new TextEncoder().encode(content).buffer as ArrayBuffer;
+  return content.buffer as ArrayBuffer;
 };
 
 
@@ -935,11 +953,15 @@ export const renderSingleItem = (
   }
 
   if (wantsItemAtomResponse(c, format, content)) {
-    return c.text(renderItemAtomFeed([responseItem], content, libraryID, style), 200, {
-      "Content-Type": "application/atom+xml",
-      "Last-Modified-Version": `${objectVersion}`,
-      "Total-Results": "1",
-    });
+    return c.text(
+      renderItemAtomEntryDocument(responseItem, content, libraryID, style),
+      200,
+      {
+        "Content-Type": "application/atom+xml",
+        "Last-Modified-Version": `${objectVersion}`,
+        "Total-Results": "1",
+      }
+    );
   }
 
   return c.json(
@@ -1782,7 +1804,7 @@ const stripVersionForCompare = (data: Record<string, unknown>) => {
   return rest;
 };
 
-export const attachItemMeta = (
+export const attachItemMeta = async (
   c: Context<{ Bindings: Bindings }>,
   item: { data?: Record<string, unknown>; key: string; version?: number },
   input: {
@@ -1790,6 +1812,7 @@ export const attachItemMeta = (
     groupName?: string;
     libraryID: number;
     libraryType: "group" | "user";
+    store: CompatibilityStore;
   }
 ) => {
   const meta: Record<string, unknown> = {
@@ -1802,6 +1825,52 @@ export const attachItemMeta = (
   meta.numChildren = input.allItems.filter(
     (other) => other.data?.parentItem === item.key
   ).length;
+
+  const origin = new URL(c.req.url).origin;
+  const basePath =
+    input.libraryType === "user"
+      ? `/users/${input.libraryID}`
+      : `/groups/${input.libraryID}`;
+  const links: Record<string, unknown> = {
+    self: {
+      href: `${origin}${basePath}/items/${item.key}`,
+      type: "application/json",
+    },
+    alternate: {
+      href: `${origin}${basePath}/items/${item.key}`,
+      type: "text/html",
+    },
+  };
+  // links.attachment points at the item's "best" child attachment with a
+  // registered stored file.
+  const childAttachments = input.allItems.filter(
+    (other) =>
+      other.data?.parentItem === item.key &&
+      other.data?.itemType === "attachment"
+  );
+  for (const child of childAttachments) {
+    const file =
+      input.libraryType === "user"
+        ? await input.store.getAttachmentFile(input.libraryID, child.key)
+        : await input.store.getGroupAttachmentFile(input.libraryID, child.key);
+    if (file) {
+      links.attachment = {
+        href: `${origin}${basePath}/items/${child.key}`,
+        type: "application/json",
+        attachmentType:
+          file.contentType ??
+          child.data?.contentType ??
+          "application/octet-stream",
+        // attachmentSize is only reported for single-file (non-ZIP) stored
+        // attachments, matching the official server.
+        ...(file.sizeBytes && !file.zip
+          ? { attachmentSize: file.sizeBytes }
+          : {}),
+      };
+      break;
+    }
+  }
+
   return {
     ...item,
     library: buildLibraryBlock(
@@ -1810,6 +1879,7 @@ export const attachItemMeta = (
       input.libraryID,
       input.groupName
     ),
+    links,
     meta,
   };
 };
@@ -2032,12 +2102,15 @@ export const handleItemBatchWrite = async (
     input.libraryType === "user"
       ? await input.store.listItems(input.libraryID)
       : await input.store.listGroupItems(input.libraryID);
-  const enrichedSuccessful = result.successful.map((item) =>
-    attachItemMeta(c, item, {
-      allItems: postLibrary.items,
-      libraryID: input.libraryID,
-      libraryType: input.libraryType,
-    })
+  const enrichedSuccessful = await Promise.all(
+    result.successful.map((item) =>
+      attachItemMeta(c, item, {
+        allItems: postLibrary.items,
+        libraryID: input.libraryID,
+        libraryType: input.libraryType,
+        store: input.store,
+      })
+    )
   );
 
   return c.json(

@@ -119,15 +119,34 @@ export const renderItemAtomFeed = (
   ].join("");
 };
 
+// Single-object Atom responses are a bare <entry> document (the official
+// tests use root-anchored /atom:entry XPaths), not a one-entry feed.
+export const renderItemAtomEntryDocument = (
+  item: ExportItem,
+  content: ItemAtomContent | string | null | undefined,
+  libraryID: number,
+  style?: string | null
+): string =>
+  `<?xml version="1.0" encoding="UTF-8"?>${renderItemAtomEntry(
+    item,
+    parseItemAtomContents(content) ?? ["json"],
+    libraryID,
+    style,
+    true
+  )}`;
+
 const renderItemAtomEntry = (
   item: ExportItem,
   contents: ItemAtomContent[],
   libraryID: number,
-  style?: string | null
+  style?: string | null,
+  withNamespaces = false
 ): string => {
   const meta = (item as { meta?: Record<string, unknown> }).meta ?? {};
   return [
-    "<entry>",
+    withNamespaces
+      ? '<entry xmlns="http://www.w3.org/2005/Atom" xmlns:zapi="http://zotero.org/ns/api">'
+      : "<entry>",
     `<zapi:key>${escapeXML(item.key)}</zapi:key>`,
     `<zapi:version>${item.version ?? 0}</zapi:version>`,
     getCreatorSummary(item)

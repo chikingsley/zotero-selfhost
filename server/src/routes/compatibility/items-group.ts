@@ -36,12 +36,13 @@ compatibility.get("/groups/:groupID/items/:itemKey", async (c) => {
   );
   return renderSingleItem(
     c,
-    attachItemMeta(c, item, {
+    await attachItemMeta(c, item, {
       allItems: library.items,
       groupName:
         typeof group?.data.name === "string" ? group.data.name : undefined,
       libraryID: groupID,
       libraryType: "group",
+      store,
     }),
     result.version
   );
