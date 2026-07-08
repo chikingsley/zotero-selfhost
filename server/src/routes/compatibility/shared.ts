@@ -838,7 +838,7 @@ export const filterChildItems = <T extends { data: Record<string, unknown> }>(
 
 export const renderItemList = (
   c: Context<{ Bindings: Bindings }>,
-  items: Array<{ data?: Record<string, unknown>; key: string; version?: number }>,
+  allItems: Array<{ data?: Record<string, unknown>; key: string; version?: number }>,
   version: number
 ) => {
   if (requestIsNotModified(c, version)) {
@@ -846,6 +846,12 @@ export const renderItemList = (
       "Last-Modified-Version": `${version}`,
     });
   }
+
+  const sinceVersion = getSinceOrNewerVersion(c);
+  const items =
+    sinceVersion === null
+      ? allItems
+      : allItems.filter((item) => (item.version ?? 0) > sinceVersion);
 
   const sortedItems = sortItemsForRequest(c, items);
   const page = paginateRecords(c, sortedItems);
@@ -916,18 +922,22 @@ export const renderSingleItem = (
   const content = c.req.query("content");
   const style = c.req.query("style");
   const responseItem = shapeItemForSchemaRequest(c, item);
+  // Single-object responses carry the object's own version, not the
+  // library version (official ApiController sets libraryVersion to the
+  // object version for single-object requests).
+  const objectVersion = item.version ?? version;
 
   if (isExportFormat(format)) {
     return c.text(renderExportBody([responseItem], format, libraryID), 200, {
       "Content-Type": exportContentType(format),
-      "Last-Modified-Version": `${version}`,
+      "Last-Modified-Version": `${objectVersion}`,
     });
   }
 
   if (wantsItemAtomResponse(c, format, content)) {
     return c.text(renderItemAtomFeed([responseItem], content, libraryID, style), 200, {
       "Content-Type": "application/atom+xml",
-      "Last-Modified-Version": `${version}`,
+      "Last-Modified-Version": `${objectVersion}`,
       "Total-Results": "1",
     });
   }
@@ -936,7 +946,7 @@ export const renderSingleItem = (
     withItemIncludes(responseItem, c.req.query("include"), libraryID, style),
     200,
     {
-      "Last-Modified-Version": `${version}`,
+      "Last-Modified-Version": `${objectVersion}`,
     }
   );
 };
