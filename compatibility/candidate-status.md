@@ -18,10 +18,23 @@ in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 | file | 19/22 | 🟡 3 remaining need external infra (see known-differences) |
 | tag | 22/22 | ✅ green |
 
-Not yet scored (later phases): `keys`, `permissions`, `loginSessions`,
-`group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin`,
-`atom`, `bib`, `export`, `sort`, `params`, `cache`, `relation`, `mappings`,
-`creator`, `schema` (schema self-skips upstream).
+## Later-phase slices (scored 2026-07-08, not yet driven to green)
+
+| Slice | Score | | Slice | Score |
+| --- | --- | --- | --- | --- |
+| mappings | 11/11 ✅ | | keys | 6/9 |
+| creator | 6/6 ✅ | | permissions | 6/9 |
+| cache | 1/1 ✅ | | loginSessions | 16/19 |
+| storage-admin | 2/2 ✅ | | relation | 10/13 |
+| notifications | 8/11 | | sort | 6/8 |
+| fulltext | 11/15 | | params | 6/8 |
+| atom | 4/5 | | translation | 2/3 |
+| group | 2/7 | | bib | 0/11 |
+| publications | 10/32 | | export | 0/3 |
+
+Largest later-phase gaps: `bib`/`export` (real CSL citation rendering vs the
+current deterministic shims), `publications`, and `group` admin flows.
+`schema` self-skips upstream.
 
 ## How to reproduce
 
