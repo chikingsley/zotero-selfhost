@@ -54,7 +54,11 @@ import {
   applyZoteroPatch,
   PatchAlgorithmUnavailableError,
 } from "../../patch";
-import { createCompatibilityStore, type CompatibilityStore } from "../../storage";
+import {
+  createCompatibilityStore,
+  type CompatibilityStore,
+  type ItemWriteOptions,
+} from "../../storage";
 import { schemaVersionHeader } from "../../schema";
 import {
   getRelatedItemReverseUpdates,
@@ -86,6 +90,7 @@ import {
   getCreatorSummary,
   isSupportedAnnotationType,
   isSupportedAttachmentLinkMode,
+  isSupportedItemType,
 } from "../../zotero";
 
 
@@ -162,6 +167,18 @@ export const requireUserWrite = async (
 
   await keyStore.recordAccess(apiKey);
   return true;
+};
+
+
+export const getRequestUserID = async (
+  c: Context<{ Bindings: Bindings }>
+): Promise<number | null> => {
+  const apiKey = getRequestApiKey(c);
+  if (!apiKey) {
+    return null;
+  }
+
+  return (await createKeyStore(c.env).getKey(apiKey))?.userID ?? null;
 };
 
 
@@ -1412,6 +1429,28 @@ export type BatchWritePreconditionResult = {
 };
 
 
+type ParsedVersionProperty =
+  | { kind: "missing" }
+  | { kind: "invalid"; value: unknown }
+  | { kind: "valid"; version: number };
+
+
+export const parseJSONVersionProperty = (
+  value: unknown
+): ParsedVersionProperty => {
+  if (value === undefined || value === null) {
+    return { kind: "missing" };
+  }
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return { kind: "valid", version: value };
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    return { kind: "valid", version: Number.parseInt(value, 10) };
+  }
+  return { kind: "invalid", value };
+};
+
+
 // Implements Zotero's version-precondition contract for batch writes:
 // library-level `If-Unmodified-Since-Version`, per-object `version` property
 // semantics (0 = must-not-exist, matching = update, stale = 412), and the
@@ -1450,8 +1489,16 @@ export const evaluateBatchWritePreconditions = (
   objects.forEach((object, index) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existing.get(key) : undefined;
+    const parsedVersion = parseJSONVersionProperty(object.version);
+    if (parsedVersion.kind === "invalid") {
+      failed[index] = {
+        code: 400,
+        message: `Invalid JSON 'version' property value '${String(parsedVersion.value)}'`,
+      };
+      return;
+    }
     const versionProp =
-      typeof object.version === "number" ? object.version : undefined;
+      parsedVersion.kind === "valid" ? parsedVersion.version : undefined;
 
     if (current) {
       if (versionProp === undefined) {
@@ -1542,6 +1589,27 @@ export const getUserIdentity = (userID: number) =>
     displayName: `User ${userID}`,
     username: `user${userID}`,
   };
+
+
+export const buildUserMetaBlock = (
+  c: Context<{ Bindings: Bindings }>,
+  userID: number
+) => {
+  const origin = new URL(c.req.url).origin;
+  const identity = getUserIdentity(userID);
+
+  return {
+    id: userID,
+    username: identity.username,
+    name: identity.displayName,
+    links: {
+      alternate: {
+        href: `${origin}/${identity.username}`,
+        type: "text/html",
+      },
+    },
+  };
+};
 
 export const buildLibraryBlock = (
   c: Context<{ Bindings: Bindings }>,
@@ -1695,7 +1763,11 @@ const timestampFormatError = (field: string, value: string) => ({
 export const normalizeItemTimestampsForWrite = (
   data: Record<string, unknown>,
   existing: Record<string, unknown> | undefined,
-  now: string
+  now: string,
+  options: {
+    preserveDateModified?: boolean;
+    tmpZoteroClientDateModifiedHack?: boolean;
+  } = {}
 ): { code: number; message: string } | null => {
   for (const field of ["accessDate", "dateAdded", "dateModified"] as const) {
     const value = data[field];
@@ -1723,7 +1795,11 @@ export const normalizeItemTimestampsForWrite = (
     typeof existing.dateModified === "string" ? existing.dateModified : "";
   const incoming =
     typeof data.dateModified === "string" ? data.dateModified : "";
-  if (!incoming || incoming === previous) {
+  if (options.preserveDateModified) {
+    data.dateModified = incoming || previous || now;
+  } else if (options.tmpZoteroClientDateModifiedHack && incoming) {
+    data.dateModified = incoming;
+  } else if (!incoming || incoming === previous) {
     data.dateModified = now;
   }
   if (typeof data.dateAdded !== "string" || data.dateAdded === "") {
@@ -1778,13 +1854,49 @@ export const validateItemNoteFieldForWrite = (
   return null;
 };
 
+
+const attachmentOnlyFields = new Set([
+  "charset",
+  "contentType",
+  "filename",
+  "linkMode",
+  "md5",
+  "mtime",
+  "path",
+]);
+
+
+export const validateItemTypeAndFieldUseForWrite = (
+  data: Record<string, unknown>
+): { code: number; message: string } | null => {
+  const itemType = typeof data.itemType === "string" ? data.itemType : "";
+  if (!itemType) {
+    return { code: 400, message: "'itemType' property not provided" };
+  }
+  if (!isSupportedItemType(itemType)) {
+    return { code: 400, message: `'${itemType}' is not a valid itemType` };
+  }
+  if (itemType !== "attachment") {
+    for (const field of attachmentOnlyFields) {
+      if (field in data) {
+        return {
+          code: 400,
+          message: `'${field}' is valid only for attachment items`,
+        };
+      }
+    }
+  }
+  return null;
+};
+
 // /top semantics: a query may match any descendant; the response contains
 // the matching items' top-level ancestors.
 export const resolveTopLevelItems = <
   T extends { data?: Record<string, unknown>; key: string },
 >(
   matched: T[],
-  allItems: T[]
+  allItems: T[],
+  includeTrashed = false
 ): T[] => {
   const byKey = new Map(allItems.map((item) => [item.key, item]));
   const out: T[] = [];
@@ -1800,7 +1912,7 @@ export const resolveTopLevelItems = <
       current = byKey.get(current.data.parentItem) as T;
       guard += 1;
     }
-    if (!seen.has(current.key) && !current.data?.deleted) {
+    if (!seen.has(current.key) && (includeTrashed || !current.data?.deleted)) {
       seen.add(current.key);
       out.push(current);
     }
@@ -1884,13 +1996,6 @@ export const validateAttachmentForWrite = (
     }
   }
   if (linkMode === "embedded_image") {
-    const parent = typeof data.parentItem === "string" ? data.parentItem : "";
-    if (!parent) {
-      return {
-        code: 400,
-        message: "Embedded-image attachment must have a parent item",
-      };
-    }
     if (
       existing &&
       "parentItem" in incoming &&
@@ -1901,18 +2006,25 @@ export const validateAttachmentForWrite = (
         message: "Cannot change parent item of embedded-image attachment",
       };
     }
+    if (typeof data.note === "string" && data.note !== "") {
+      return {
+        code: 400,
+        message: "'note' property is not valid for embedded images",
+      };
+    }
+    const parent = typeof data.parentItem === "string" ? data.parentItem : "";
+    if (!parent) {
+      return {
+        code: 400,
+        message: "Embedded-image attachment must have a parent item",
+      };
+    }
     const contentType =
       typeof data.contentType === "string" ? data.contentType : "";
     if (!contentType.startsWith("image/")) {
       return {
         code: 400,
         message: "Embedded-image attachment must have an image content type",
-      };
-    }
-    if (typeof data.note === "string" && data.note !== "") {
-      return {
-        code: 400,
-        message: "'note' property is not valid for embedded images",
       };
     }
   }
@@ -1969,6 +2081,62 @@ const stripVersionForCompare = (data: Record<string, unknown>) => {
   return rest;
 };
 
+
+const stripNonFieldChangesForCompare = (data: Record<string, unknown>) => {
+  const {
+    collections: _collections,
+    dateModified: _dateModified,
+    inPublications: _inPublications,
+    relations: _relations,
+    version: _version,
+    ...rest
+  } = data;
+  return rest;
+};
+
+
+export const isTmpZoteroClientDateModifiedHack = (
+  c: Context<{ Bindings: Bindings }>
+) => {
+  const userAgent = c.req.header("User-Agent") ?? "";
+  return userAgent.includes("Firefox") || userAgent.includes("Zotero");
+};
+
+
+export const isOnlyNonFieldItemChange = (
+  next: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined
+): boolean => {
+  if (!existing) {
+    return false;
+  }
+  if (
+    jsonValuesEqual(
+      stripVersionForCompare(next),
+      stripVersionForCompare(existing)
+    )
+  ) {
+    return false;
+  }
+  return jsonValuesEqual(
+    stripNonFieldChangesForCompare(next),
+    stripNonFieldChangesForCompare(existing)
+  );
+};
+
+
+export const isFieldItemChange = (
+  next: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined
+): boolean =>
+  Boolean(
+    existing &&
+      !jsonValuesEqual(
+        stripNonFieldChangesForCompare(next),
+        stripNonFieldChangesForCompare(existing)
+      )
+  );
+
 export const attachItemMeta = async (
   c: Context<{ Bindings: Bindings }>,
   item: { data?: Record<string, unknown>; key: string; version?: number },
@@ -1990,6 +2158,21 @@ export const attachItemMeta = async (
   meta.numChildren = input.allItems.filter(
     (other) => other.data?.parentItem === item.key
   ).length;
+  const createdByUserID = (item as { createdByUserID?: unknown }).createdByUserID;
+  const lastModifiedByUserID = (item as {
+    lastModifiedByUserID?: unknown;
+  }).lastModifiedByUserID;
+  if (input.libraryType === "group" && typeof createdByUserID === "number") {
+    meta.createdByUser = buildUserMetaBlock(c, createdByUserID);
+    if (
+      typeof lastModifiedByUserID === "number" &&
+      lastModifiedByUserID !== createdByUserID
+    ) {
+      meta.lastModifiedByUser = buildUserMetaBlock(c, lastModifiedByUserID);
+    } else {
+      delete meta.lastModifiedByUser;
+    }
+  }
 
   const origin = new URL(c.req.url).origin;
   const basePath =
@@ -2048,6 +2231,19 @@ export const attachItemMeta = async (
     meta,
   };
 };
+
+
+export const attachItemsMeta = async (
+  c: Context<{ Bindings: Bindings }>,
+  items: Array<{ data?: Record<string, unknown>; key: string; version?: number }>,
+  input: {
+    allItems: Array<{ data?: Record<string, unknown>; key: string }>;
+    groupName?: string;
+    libraryID: number;
+    libraryType: "group" | "user";
+    store: CompatibilityStore;
+  }
+) => Promise.all(items.map((item) => attachItemMeta(c, item, input)));
 
 export const jsonValuesEqual = (left: unknown, right: unknown): boolean => {
   if (left === right) {
@@ -2138,6 +2334,9 @@ export const handleItemBatchWrite = async (
   mergeItemWriteFailures(itemFailures, precondition.failed);
 
   const now = nowISOTimestamp();
+  const actorUserID =
+    input.libraryType === "group" ? await getRequestUserID(c) : null;
+  const tmpZoteroClientDateModifiedHack = isTmpZoteroClientDateModifiedHack(c);
   const finalItems: Record<string, unknown>[] = rawItems.map((object, index) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existingVersions.get(key) : undefined;
@@ -2156,6 +2355,10 @@ export const handleItemBatchWrite = async (
     if (lastReadFailure && !(index in itemFailures)) {
       itemFailures[index] = lastReadFailure;
     }
+    const itemTypeFailure = validateItemTypeAndFieldUseForWrite(normalized);
+    if (itemTypeFailure && !(index in itemFailures)) {
+      itemFailures[index] = itemTypeFailure;
+    }
     const noteFieldFailure = validateItemNoteFieldForWrite(normalized);
     if (noteFieldFailure && !(index in itemFailures)) {
       itemFailures[index] = noteFieldFailure;
@@ -2172,7 +2375,11 @@ export const handleItemBatchWrite = async (
     const timestampFailure = normalizeItemTimestampsForWrite(
       normalized,
       current?.data,
-      now
+      now,
+      {
+        preserveDateModified: isOnlyNonFieldItemChange(normalized, current?.data),
+        tmpZoteroClientDateModifiedHack,
+      }
     );
     if (timestampFailure && !(index in itemFailures)) {
       itemFailures[index] = timestampFailure;
@@ -2216,6 +2423,7 @@ export const handleItemBatchWrite = async (
 
   const unchanged: Record<string, string> = { ...precondition.unchanged };
   const toWrite: Array<{ index: number; object: Record<string, unknown> }> = [];
+  const updateLastModifiedByUserIDByKey: Record<string, boolean> = {};
   for (const entry of precondition.toWrite) {
     if (entry.index in itemFailures) {
       continue;
@@ -2236,6 +2444,9 @@ export const handleItemBatchWrite = async (
       unchanged[entry.index] = key;
       continue;
     }
+    if (key && current && isFieldItemChange(final, current.data)) {
+      updateLastModifiedByUserIDByKey[key] = true;
+    }
     toWrite.push({ index: entry.index, object: final });
   }
 
@@ -2251,17 +2462,23 @@ export const handleItemBatchWrite = async (
   }
 
   const writeToken = c.req.header("Zotero-Write-Token");
+  const writeOptions: ItemWriteOptions = {
+    actorUserID,
+    updateLastModifiedByUserIDByKey,
+  };
   const result = toWrite.length
     ? input.libraryType === "user"
       ? await input.store.createItems(
           input.libraryID,
           toWrite.map((entry) => entry.object),
-          writeToken
+          writeToken,
+          writeOptions
         )
       : await input.store.createGroupItems(
           input.libraryID,
           toWrite.map((entry) => entry.object),
-          writeToken
+          writeToken,
+          writeOptions
         )
     : {
         duplicateWriteToken: false,
@@ -2349,15 +2566,23 @@ export const checkSingleObjectWriteVersion = (
   }
 
   let propVersion: number | null = null;
-  if (editable.version !== undefined) {
-    if (typeof editable.version !== "number" || !Number.isInteger(editable.version)) {
+  const parsedVersion = parseJSONVersionProperty(editable.version);
+  if (parsedVersion.kind === "invalid") {
+    return {
+      code: 400,
+      message: `Invalid JSON 'version' property value '${String(parsedVersion.value)}'`,
+      ok: false,
+    };
+  }
+  if (parsedVersion.kind === "valid") {
+    if (parsedVersion.version < 0) {
       return {
         code: 400,
         message: `Invalid JSON 'version' property value '${String(editable.version)}'`,
         ok: false,
       };
     }
-    propVersion = editable.version;
+    propVersion = parsedVersion.version;
   }
 
   if (
@@ -2820,7 +3045,7 @@ export const getAnnotationParentFailure = (
     return null;
   }
   if (typeof item.parentItem !== "string" || item.parentItem.length === 0) {
-    return { code: 400, message: "Annotation parentItem is required" };
+    return { code: 400, message: "Annotation must have a parent item" };
   }
 
   const parent = parents.get(item.parentItem);
@@ -2830,21 +3055,16 @@ export const getAnnotationParentFailure = (
       message: `Parent attachment ${item.parentItem} not found`,
     };
   }
-  if (parent.itemType !== "attachment") {
-    return {
-      code: 400,
-      message: `Annotation parent ${item.parentItem} must be an attachment`,
-    };
-  }
-
   const contentType =
     typeof parent.contentType === "string"
       ? (parent.contentType.split(";")[0] ?? "").toLowerCase()
       : "";
-  if (!annotationParentContentTypes.has(contentType)) {
+  if (parent.itemType !== "attachment" || !annotationParentContentTypes.has(contentType)) {
+    const annotationType =
+      typeof item.annotationType === "string" ? item.annotationType : "annotation";
     return {
       code: 400,
-      message: `Annotation parent ${item.parentItem} must be a PDF, EPUB, or HTML attachment`,
+      message: `Parent item of ${annotationType} annotation must be a PDF attachment`,
     };
   }
 
@@ -3119,6 +3339,13 @@ export const updateItemInLibrary = async (
   if (lastReadFailure) {
     return c.text(lastReadFailure.message, 400);
   }
+  const itemTypeFailure = validateItemTypeAndFieldUseForWrite(data);
+  if (itemTypeFailure) {
+    return c.text(
+      itemTypeFailure.message,
+      itemTypeFailure.code as ContentfulStatusCode
+    );
+  }
   const noteFieldFailure = validateItemNoteFieldForWrite(data);
   if (noteFieldFailure) {
     return c.text(noteFieldFailure.message, 400);
@@ -3149,7 +3376,11 @@ export const updateItemInLibrary = async (
   const timestampFailure = normalizeItemTimestampsForWrite(
     data,
     existing?.data,
-    nowISOTimestamp()
+    nowISOTimestamp(),
+    {
+      preserveDateModified: isOnlyNonFieldItemChange(data, existing?.data),
+      tmpZoteroClientDateModifiedHack: isTmpZoteroClientDateModifiedHack(c),
+    }
   );
   if (timestampFailure) {
     return c.text(timestampFailure.message, 400);
@@ -3218,8 +3449,16 @@ export const updateItemInLibrary = async (
 
   const result =
     input.libraryType === "user"
-      ? await input.store.createItems(input.libraryID, [data])
-      : await input.store.createGroupItems(input.libraryID, [data]);
+      ? await input.store.createItems(input.libraryID, [data], undefined, {
+          actorUserID: null,
+        })
+      : await input.store.createGroupItems(input.libraryID, [data], undefined, {
+          actorUserID: await getRequestUserID(c),
+          updateLastModifiedByUserIDByKey:
+            existing && isFieldItemChange(data, existing.data)
+              ? { [input.itemKey]: true }
+              : {},
+        });
   const relationVersion = await syncRelatedItemRelations(input, result.successful);
   const version = relationVersion ?? result.version;
 

@@ -1,4 +1,4 @@
-import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
+import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createFullTextStore } from "../../fulltext";
 import { createCompatibilityStore } from "../../storage";
@@ -227,11 +227,27 @@ compatibility.get("/groups/:groupID/items", async (c) => {
 
   const itemKeys = c.req.query("itemKey")?.split(",");
   const result = await store.listGroupItems(groupID, itemKeys);
-  // Trashed items only appear under /items/trash.
-  const visible = result.items.filter((item) => !item.data?.deleted);
+  const includeTrashed = c.req.query("includeTrashed") === "1";
+  const visible = includeTrashed
+    ? result.items
+    : result.items.filter((item) => !item.data?.deleted);
   const items = await filterItemsForRequest(c, "group", groupID, visible);
 
-  return renderItemList(c, items, result.version);
+  const group = (await store.listGroups()).find(
+    (candidate) => candidate.id === groupID
+  );
+  return renderItemList(
+    c,
+    await attachItemsMeta(c, items, {
+      allItems: result.items,
+      groupName:
+        typeof group?.data.name === "string" ? group.data.name : undefined,
+      libraryID: groupID,
+      libraryType: "group",
+      store,
+    }),
+    result.version
+  );
 });
 
 

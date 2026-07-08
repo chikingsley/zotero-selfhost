@@ -158,6 +158,9 @@ const renderItemAtomEntry = (
     typeof meta.numChildren === "number"
       ? `<zapi:numChildren>${meta.numChildren}</zapi:numChildren>`
       : "",
+    typeof item.data?.dateModified === "string"
+      ? `<updated>${escapeXML(item.data.dateModified)}</updated>`
+      : "",
     `<title>${escapeXML(getTitle(item))}</title>`,
     renderAtomContent(item, contents, libraryID, style),
     "</entry>",

@@ -14,9 +14,9 @@ in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 | settings | 25/25 | ✅ green |
 | search | 9/9 | ✅ green |
 | annotation | 20/20 | ✅ green |
-| item | 88/109 | 🔄 in progress |
+| item | 109/109 | ✅ green |
 | file | 19/22 | 🟡 3 remaining need external infra (see known-differences) |
-| tag | 21/22 | 🔄 1 remaining |
+| tag | 22/22 | ✅ green |
 
 Not yet scored (later phases): `keys`, `permissions`, `loginSessions`,
 `group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin`,

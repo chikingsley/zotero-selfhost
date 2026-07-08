@@ -25,8 +25,10 @@ export interface GroupRecord {
 }
 
 export interface ItemRecord {
+  createdByUserID?: number;
   data: Record<string, unknown>;
   key: string;
+  lastModifiedByUserID?: number;
   version: number;
 }
 

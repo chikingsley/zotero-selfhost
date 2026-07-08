@@ -1,8 +1,33 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, renderItemList, filterItemsForRequest, resolveTopLevelItems, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, attachItemsMeta, renderItemList, filterItemsForRequest, resolveTopLevelItems, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createCompatibilityStore } from "../../storage";
-import { filterTopItems, listTagsForRequest } from "../../tags";
+import {
+  filterTopItems,
+  hasNegatedTagExpressions,
+  itemMatchesTagFilterExpressions,
+  listTagsForRequest,
+} from "../../tags";
 import { compatibility } from "./router";
+
+
+const requestIncludesTrashed = (c: Parameters<typeof getURLSearchParams>[0]) =>
+  c.req.query("includeTrashed") === "1";
+
+
+const filterTopResultsForNegatedTags = <
+  T extends { data: Record<string, unknown>; key: string; version: number },
+>(
+  c: Parameters<typeof getURLSearchParams>[0],
+  items: T[]
+) => {
+  const tagExpressions = getURLSearchParams(c).getAll("tag").filter(Boolean);
+  if (!hasNegatedTagExpressions(tagExpressions)) {
+    return items;
+  }
+  return items.filter((item) =>
+    itemMatchesTagFilterExpressions(item, tagExpressions)
+  );
+};
 
 
 compatibility.get("/groups/:groupID/collections/:collectionKey/items/top/tags", async (c) => {
@@ -257,7 +282,10 @@ compatibility.get("/groups/:groupID/items/top", async (c) => {
   }
 
   const result = await store.listGroupItems(groupID);
-  const visible = result.items.filter((item) => !item.data?.deleted);
+  const includeTrashed = requestIncludesTrashed(c);
+  const visible = includeTrashed
+    ? result.items
+    : result.items.filter((item) => !item.data?.deleted);
   const matched = await filterItemsForRequest(
     c,
     "group",
@@ -266,10 +294,24 @@ compatibility.get("/groups/:groupID/items/top", async (c) => {
     result.items,
     true
   );
+  const topItems = filterTopResultsForNegatedTags(
+    c,
+    resolveTopLevelItems(matched, visible, includeTrashed)
+  );
+  const group = (await store.listGroups()).find(
+    (candidate) => candidate.id === groupID
+  );
 
   return renderItemList(
     c,
-    resolveTopLevelItems(matched, visible),
+    await attachItemsMeta(c, topItems, {
+      allItems: result.items,
+      groupName:
+        typeof group?.data.name === "string" ? group.data.name : undefined,
+      libraryID: groupID,
+      libraryType: "group",
+      store,
+    }),
     result.version
   );
 });
@@ -296,7 +338,21 @@ compatibility.get("/groups/:groupID/items/trash", async (c) => {
     result.items
   );
 
-  return renderItemList(c, items, result.version);
+  const group = (await store.listGroups()).find(
+    (candidate) => candidate.id === groupID
+  );
+  return renderItemList(
+    c,
+    await attachItemsMeta(c, items, {
+      allItems: result.items,
+      groupName:
+        typeof group?.data.name === "string" ? group.data.name : undefined,
+      libraryID: groupID,
+      libraryType: "group",
+      store,
+    }),
+    result.version
+  );
 });
 
 
@@ -321,7 +377,16 @@ compatibility.get("/users/:userID/items/trash", async (c) => {
     result.items
   );
 
-  return renderItemList(c, items, result.version);
+  return renderItemList(
+    c,
+    await attachItemsMeta(c, items, {
+      allItems: result.items,
+      libraryID: userID,
+      libraryType: "user",
+      store,
+    }),
+    result.version
+  );
 });
 
 
@@ -337,7 +402,10 @@ compatibility.get("/users/:userID/items/top", async (c) => {
   }
 
   const result = await store.listItems(userID);
-  const visible = result.items.filter((item) => !item.data?.deleted);
+  const includeTrashed = requestIncludesTrashed(c);
+  const visible = includeTrashed
+    ? result.items
+    : result.items.filter((item) => !item.data?.deleted);
   const matched = await filterItemsForRequest(
     c,
     "user",
@@ -346,10 +414,19 @@ compatibility.get("/users/:userID/items/top", async (c) => {
     result.items,
     true
   );
+  const topItems = filterTopResultsForNegatedTags(
+    c,
+    resolveTopLevelItems(matched, visible, includeTrashed)
+  );
 
   return renderItemList(
     c,
-    resolveTopLevelItems(matched, visible),
+    await attachItemsMeta(c, topItems, {
+      allItems: result.items,
+      libraryID: userID,
+      libraryType: "user",
+      store,
+    }),
     result.version
   );
 });

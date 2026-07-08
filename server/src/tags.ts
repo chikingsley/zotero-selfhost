@@ -104,9 +104,24 @@ export const filterItemsForItemRequest = (
     filtered = filterItemsByQuery(filtered, q, params.get("qmode"), options);
   }
 
+  const itemKeys = params.get("itemKey")?.split(",").filter(Boolean);
+  if (itemKeys?.length) {
+    const requestedKeys = new Set(itemKeys);
+    filtered = filtered.filter((item) => requestedKeys.has(item.key));
+  }
+
   const itemType = params.get("itemType");
   if (itemType) {
-    filtered = filtered.filter((item) => item.data.itemType === itemType);
+    if (itemType.startsWith("-")) {
+      const excludedItemType = itemType.slice(1);
+      filtered = filtered.filter(
+        (item) =>
+          item.data.itemType !== excludedItemType &&
+          item.data.itemType !== "annotation"
+      );
+    } else {
+      filtered = filtered.filter((item) => item.data.itemType === itemType);
+    }
   }
 
   return filtered;
@@ -240,9 +255,7 @@ const itemMatchesTagExpressions = (
   const itemTags = new Set(
     getItemTags(item).map((tagObject) => tagObject.tag.toLocaleLowerCase())
   );
-  const hasNegation = expressions.some((expression) =>
-    expression.split(" || ").some((term) => term.trim().startsWith("-"))
-  );
+  const hasNegation = hasNegatedTagExpressions(expressions);
 
   if (hasNegation && item.data.itemType === "annotation") {
     return false;
@@ -258,6 +271,13 @@ const itemMatchesTagExpressions = (
     })
   );
 };
+
+export const hasNegatedTagExpressions = (expressions: string[]): boolean =>
+  expressions.some((expression) =>
+    expression.split(" || ").some((term) => term.trim().startsWith("-"))
+  );
+
+export const itemMatchesTagFilterExpressions = itemMatchesTagExpressions;
 
 const tagNameMatchesExpressions = (tagName: string, expressions: string[]): boolean => {
   const normalized = tagName.toLocaleLowerCase();

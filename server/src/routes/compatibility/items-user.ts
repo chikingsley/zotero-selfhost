@@ -1,4 +1,4 @@
-import { parseNumericID, requireUser, requireUserWrite, handleItemBatchWrite, attachItemMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createFullTextStore } from "../../fulltext";
 import { createCompatibilityStore } from "../../storage";
@@ -222,11 +222,22 @@ compatibility.get("/users/:userID/items", async (c) => {
 
   const itemKeys = c.req.query("itemKey")?.split(",");
   const result = await store.listItems(userID, itemKeys);
-  // Trashed items only appear under /items/trash.
-  const visible = result.items.filter((item) => !item.data?.deleted);
+  const includeTrashed = c.req.query("includeTrashed") === "1";
+  const visible = includeTrashed
+    ? result.items
+    : result.items.filter((item) => !item.data?.deleted);
   const items = await filterItemsForRequest(c, "user", userID, visible);
 
-  return renderItemList(c, items, result.version);
+  return renderItemList(
+    c,
+    await attachItemsMeta(c, items, {
+      allItems: result.items,
+      libraryID: userID,
+      libraryType: "user",
+      store,
+    }),
+    result.version
+  );
 });
 
 

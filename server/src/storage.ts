@@ -69,6 +69,11 @@ interface CreateItemsResult {
   version: number;
 }
 
+export interface ItemWriteOptions {
+  actorUserID?: number | null;
+  updateLastModifiedByUserIDByKey?: Record<string, boolean>;
+}
+
 export interface AttachmentFileRecord {
   charset?: string | null;
   contentType?: string | null;
@@ -157,12 +162,14 @@ export interface CompatibilityStore {
   createGroupItems(
     groupID: number,
     objects: Record<string, unknown>[],
-    writeToken?: string
+    writeToken?: string,
+    options?: ItemWriteOptions
   ): Promise<CreateItemsResult>;
   createItems(
     userID: number,
     objects: Record<string, unknown>[],
-    writeToken?: string
+    writeToken?: string,
+    options?: ItemWriteOptions
   ): Promise<CreateItemsResult>;
   deleteGroupItems(
     groupID: number,
@@ -268,6 +275,10 @@ const memoryUploads = new Map<string, MemoryUploadRecord>();
 const memoryFiles = new Map<string, AttachmentFileRecord & { body: ArrayBuffer }>();
 const memoryGroupMembers = new Map<number, Map<number, string>>();
 const memoryStorageAccounts = new Map<number, StorageQuota>();
+const memoryDeletedItemAttribution = new Map<
+  string,
+  { createdByUserID?: number; lastModifiedByUserID?: number }
+>();
 const defaultStorageQuotaMB = 300;
 
 const defaultKeyAccess = () => ({
@@ -282,6 +293,12 @@ const getMemoryLibrary = (libraryType: "group" | "user", libraryID: number) =>
   getLibrary(getMemoryLibraryID(libraryType, libraryID));
 
 const getMemoryFileKey = (
+  libraryType: "group" | "user",
+  libraryID: number,
+  itemKey: string
+) => `${libraryType}:${libraryID}:${itemKey}`;
+
+const getMemoryDeletedItemAttributionKey = (
   libraryType: "group" | "user",
   libraryID: number,
   itemKey: string
@@ -533,6 +550,16 @@ const deleteMemoryItems = (
   if (existingKeys.length > 0) {
     library.version += 1;
     for (const itemKey of existingKeys) {
+      const item = library.items.get(itemKey);
+      if (libraryType === "group" && item?.createdByUserID) {
+        memoryDeletedItemAttribution.set(
+          getMemoryDeletedItemAttributionKey(libraryType, libraryID, itemKey),
+          {
+            createdByUserID: item.createdByUserID,
+            lastModifiedByUserID: item.lastModifiedByUserID,
+          }
+        );
+      }
       library.items.delete(itemKey);
       recordMemoryDeletion(libraryType, libraryID, library.version, "item", itemKey);
       memoryFiles.delete(getMemoryFileKey(libraryType, libraryID, itemKey));
@@ -653,12 +680,12 @@ const memoryStore: CompatibilityStore = {
     return group;
   },
 
-  async createGroupItems(groupID, objects, writeToken) {
-    return createMemoryItems("group", groupID, objects, writeToken);
+  async createGroupItems(groupID, objects, writeToken, options) {
+    return createMemoryItems("group", groupID, objects, writeToken, options);
   },
 
-  async createItems(userID, objects, writeToken) {
-    return createMemoryItems("user", userID, objects, writeToken);
+  async createItems(userID, objects, writeToken, options) {
+    return createMemoryItems("user", userID, objects, writeToken, options);
   },
 
   async deleteGroupItems(groupID, itemKeys, ifUnmodifiedSinceVersion = null) {
@@ -807,6 +834,7 @@ const memoryStore: CompatibilityStore = {
     memoryFiles.clear();
     memoryGroupMembers.clear();
     memoryStorageAccounts.clear();
+    memoryDeletedItemAttribution.clear();
     getState().apiKeys.set(user1Key, {
       access: {
         groups: { all: { library: true, write: true } },
@@ -1010,7 +1038,8 @@ const createMemoryItems = (
   libraryType: "group" | "user",
   libraryID: number,
   objects: Record<string, unknown>[],
-  writeToken?: string
+  writeToken?: string,
+  options: ItemWriteOptions = {}
 ): CreateItemsResult => {
   const library = getMemoryLibrary(libraryType, libraryID);
 
@@ -1036,18 +1065,46 @@ const createMemoryItems = (
     library.version += 1;
     const key =
       typeof object.key === "string" ? object.key : generateZoteroKey();
+    const existing = library.items.get(key);
+    const deletedAttributionKey = getMemoryDeletedItemAttributionKey(
+      libraryType,
+      libraryID,
+      key
+    );
+    const deletedAttribution =
+      libraryType === "group"
+        ? memoryDeletedItemAttribution.get(deletedAttributionKey)
+        : undefined;
     const data = sanitizeZoteroData({
       ...object,
       key,
       version: library.version,
     });
-    const item = {
+    const actorUserID = options.actorUserID ?? null;
+    const shouldUpdateLastModifiedByUserID =
+      options.updateLastModifiedByUserIDByKey?.[key] ?? false;
+    const item: ItemRecord = {
+      ...(libraryType === "group"
+        ? {
+            createdByUserID:
+              existing?.createdByUserID ??
+              deletedAttribution?.createdByUserID ??
+              actorUserID ??
+              undefined,
+            lastModifiedByUserID: existing
+              ? shouldUpdateLastModifiedByUserID
+                ? actorUserID ?? existing.lastModifiedByUserID
+                : existing.lastModifiedByUserID
+              : actorUserID ?? deletedAttribution?.lastModifiedByUserID,
+          }
+        : {}),
       data,
       key,
       version: library.version,
     };
 
     library.items.set(key, item);
+    memoryDeletedItemAttribution.delete(deletedAttributionKey);
     success.push(key);
     successful.push(item);
   }
@@ -1382,16 +1439,18 @@ class D1CompatibilityStore implements CompatibilityStore {
   async createGroupItems(
     groupID: number,
     objects: Record<string, unknown>[],
-    writeToken?: string
+    writeToken?: string,
+    options?: ItemWriteOptions
   ): Promise<CreateItemsResult> {
     await this.ensureGroupLibrary(groupID);
-    return this.createItemsForLibrary("group", groupID, objects, writeToken);
+    return this.createItemsForLibrary("group", groupID, objects, writeToken, options);
   }
 
   async createItems(
     userID: number,
     objects: Record<string, unknown>[],
-    writeToken?: string
+    writeToken?: string,
+    options?: ItemWriteOptions
   ): Promise<CreateItemsResult> {
     await this.ensureUserLibrary(userID);
 
@@ -1440,7 +1499,16 @@ class D1CompatibilityStore implements CompatibilityStore {
       });
       const itemType =
         typeof data.itemType === "string" ? data.itemType : "book";
-      const item = {
+      const item: ItemRecord = {
+        ...(options?.actorUserID
+          ? {
+              createdByUserID: options.actorUserID,
+              lastModifiedByUserID:
+                options.updateLastModifiedByUserIDByKey?.[key]
+                  ? options.actorUserID
+                  : undefined,
+            }
+          : {}),
         data,
         key,
         version,
@@ -2503,7 +2571,8 @@ class D1CompatibilityStore implements CompatibilityStore {
     libraryType: "group" | "user",
     libraryID: number,
     objects: Record<string, unknown>[],
-    writeToken?: string
+    writeToken?: string,
+    options?: ItemWriteOptions
   ): Promise<CreateItemsResult> {
     if (writeToken) {
       const duplicate = await this.db
@@ -2550,7 +2619,16 @@ class D1CompatibilityStore implements CompatibilityStore {
       });
       const itemType =
         typeof data.itemType === "string" ? data.itemType : "book";
-      const item = {
+      const item: ItemRecord = {
+        ...(libraryType === "group" && options?.actorUserID
+          ? {
+              createdByUserID: options.actorUserID,
+              lastModifiedByUserID:
+                options.updateLastModifiedByUserIDByKey?.[key]
+                  ? options.actorUserID
+                  : undefined,
+            }
+          : {}),
         data,
         key,
         version,

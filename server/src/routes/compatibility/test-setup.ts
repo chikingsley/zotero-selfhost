@@ -19,7 +19,7 @@ compatibility.post("/test/setup", async (c) => {
   // Identities from the official test config (config/default.json):
   // library envelopes report these as displayName / URL slug.
   registerUserIdentity(userID, "phpunit", "Real Name");
-  registerUserIdentity(userID2, "phpunit2", "phpunit2");
+  registerUserIdentity(userID2, "phpunit2", "Real Name 2");
   const user1Key = c.env.ZOTERO_API_KEY || generateZoteroKey().toLowerCase();
   const user2Key = generateZoteroKey().toLowerCase();
   const store = createCompatibilityStore(c.env);
