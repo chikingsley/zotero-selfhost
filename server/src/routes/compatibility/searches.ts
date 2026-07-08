@@ -79,6 +79,11 @@ compatibility.put("/groups/:groupID/searches/:searchKey", async (c) => {
   }
 
   const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
+  if (existing && searchData.version === undefined) {
+    // The route has already validated the header-supplied version; satisfy
+    // the store's per-object version guard.
+    searchData.version = existing.search.version;
+  }
   const result = await searchStore.upsertSearches(
     "group",
     groupID,
@@ -331,6 +336,11 @@ compatibility.put("/users/:userID/searches/:searchKey", async (c) => {
   }
 
   const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
+  if (existing && searchData.version === undefined) {
+    // The route has already validated the header-supplied version; satisfy
+    // the store's per-object version guard.
+    searchData.version = existing.search.version;
+  }
   const result = await searchStore.upsertSearches(
     "user",
     userID,

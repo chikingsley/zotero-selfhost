@@ -786,12 +786,35 @@ export const renderCollectionList = (
     });
   }
 
-  const filtered = filterCollectionsForRequest(c, collections);
+  const sinceVersion = getSinceOrNewerVersion(c);
+  const versionFiltered =
+    sinceVersion === null
+      ? collections
+      : collections.filter(
+          (collection) => (collection.version ?? 0) > sinceVersion
+        );
+  const filtered = filterCollectionsForRequest(c, versionFiltered);
   const page = paginateRecords(c, filtered);
 
   if (c.req.query("format") === "keys") {
     return c.text(
       page.records.map((collection) => collection.key).join("\n"),
+      200,
+      {
+        "Last-Modified-Version": `${version}`,
+        ...page.headers,
+      }
+    );
+  }
+
+  if (c.req.query("format") === "versions") {
+    return c.json(
+      Object.fromEntries(
+        page.records.map((collection) => [
+          collection.key,
+          collection.version ?? version,
+        ])
+      ),
       200,
       {
         "Last-Modified-Version": `${version}`,

@@ -80,5 +80,13 @@ export const getLibrary = (userID: number): LibraryState => {
 };
 
 export const clearLibrary = (userID: number) => {
-  state.libraries.set(userID, createLibrary());
+  const existing = state.libraries.get(userID);
+  const library = createLibrary();
+  // The official server's library version is monotonic: clearing a library
+  // deletes its objects but never resets the version counter. Tests and
+  // real sync clients rely on versions never going backwards.
+  if (existing) {
+    library.version = existing.version;
+  }
+  state.libraries.set(userID, library);
 };
