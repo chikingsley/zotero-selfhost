@@ -1,4 +1,4 @@
-import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
+import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createFullTextStore } from "../../fulltext";
 import { createCompatibilityStore } from "../../storage";
@@ -30,7 +30,21 @@ compatibility.get("/groups/:groupID/items/:itemKey", async (c) => {
     return c.text("Item not found", 404);
   }
 
-  return renderSingleItem(c, item, result.version);
+  const library = await store.listGroupItems(groupID);
+  const group = (await store.listGroups()).find(
+    (candidate) => candidate.id === groupID
+  );
+  return renderSingleItem(
+    c,
+    attachItemMeta(c, item, {
+      allItems: library.items,
+      groupName:
+        typeof group?.data.name === "string" ? group.data.name : undefined,
+      libraryID: groupID,
+      libraryType: "group",
+    }),
+    result.version
+  );
 });
 
 

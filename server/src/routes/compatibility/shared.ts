@@ -1494,6 +1494,263 @@ export const buildWriteReport = (
 };
 
 
+// Identities the official test config expects the server to know about
+// (references/dataserver/tests/remote/config/default.json). Registered when
+// /test/setup provisions users.
+const userIdentities = new Map<
+  number,
+  { displayName: string; username: string }
+>();
+
+export const registerUserIdentity = (
+  userID: number,
+  username: string,
+  displayName: string
+) => {
+  userIdentities.set(userID, { displayName, username });
+};
+
+export const getUserIdentity = (userID: number) =>
+  userIdentities.get(userID) ?? {
+    displayName: `User ${userID}`,
+    username: `user${userID}`,
+  };
+
+export const buildLibraryBlock = (
+  c: Context<{ Bindings: Bindings }>,
+  libraryType: "group" | "user",
+  libraryID: number,
+  groupName?: string
+) => {
+  const origin = new URL(c.req.url).origin;
+  if (libraryType === "user") {
+    const identity = getUserIdentity(libraryID);
+    return {
+      type: "user",
+      id: libraryID,
+      name: identity.displayName,
+      links: {
+        alternate: {
+          href: `${origin}/${identity.username}`,
+          type: "text/html",
+        },
+      },
+    };
+  }
+  return {
+    type: "group",
+    id: libraryID,
+    name: groupName ?? "",
+    links: {
+      alternate: {
+        href: `${origin}/groups/${libraryID}`,
+        type: "text/html",
+      },
+    },
+  };
+};
+
+const zoteroMonths: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4,
+  april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8,
+  sep: 9, sept: 9, september: 9, oct: 10, october: 10, nov: 11,
+  november: 11, dec: 12, december: 12,
+};
+
+const pad2 = (value: number) => `${value}`.padStart(2, "0");
+
+// Minimal port of Zotero's date parsing for meta.parsedDate: returns
+// 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD', or null when unparseable.
+export const parseZoteroDate = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const text = value.trim();
+  if (!text) {
+    return null;
+  }
+
+  let match = text.match(/^(\d{4})$/);
+  if (match) {
+    return match[1] ?? null;
+  }
+  match = text.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
+  if (match) {
+    const month = Number(match[2]);
+    const day = match[3] ? Number(match[3]) : null;
+    if (month < 1 || month > 12 || (day !== null && (day < 1 || day > 31))) {
+      return null;
+    }
+    return day === null
+      ? `${match[1]}-${pad2(month)}`
+      : `${match[1]}-${pad2(month)}-${pad2(day)}`;
+  }
+  match = text.match(/^([A-Za-z]+)\.?\s+(\d{1,2}),\s*(\d{4})$/);
+  if (match) {
+    const month = zoteroMonths[(match[1] ?? "").toLowerCase()];
+    const day = Number(match[2]);
+    if (!month || day < 1 || day > 31) {
+      return null;
+    }
+    return `${match[3]}-${pad2(month)}-${pad2(day)}`;
+  }
+  match = text.match(/^(\d{1,2})\.?\s+([A-Za-z]+)\.?\s+(\d{4})$/);
+  if (match) {
+    const month = zoteroMonths[(match[2] ?? "").toLowerCase()];
+    const day = Number(match[1]);
+    if (!month || day < 1 || day > 31) {
+      return null;
+    }
+    return `${match[3]}-${pad2(month)}-${pad2(day)}`;
+  }
+  match = text.match(/^([A-Za-z]+)\.?\s+(\d{4})$/);
+  if (match) {
+    const month = zoteroMonths[(match[1] ?? "").toLowerCase()];
+    if (!month) {
+      return null;
+    }
+    return `${match[2]}-${pad2(month)}`;
+  }
+  match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null;
+    }
+    return `${match[3]}-${pad2(month)}-${pad2(day)}`;
+  }
+  return null;
+};
+
+export const nowISOTimestamp = (): string =>
+  new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
+// Normalizes a Zotero timestamp field value to ISO 8601 UTC ('...Z').
+// Accepts ISO 8601 (with Z or numeric offset), UTC SQL format
+// 'YYYY-MM-DD[ hh:mm:ss]', or 'CURRENT_TIMESTAMP'. Returns null when invalid.
+export const normalizeZoteroTimestamp = (
+  value: string,
+  now: string
+): string | null => {
+  const text = value.trim();
+  if (text === "CURRENT_TIMESTAMP") {
+    return now;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text)) {
+    return text;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:?\d{2})$/.test(text)) {
+    const parsed = new Date(text);
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+    return parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
+  }
+  if (/^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2}:\d{2})?$/.test(text)) {
+    const iso = text.includes(" ")
+      ? `${text.replace(" ", "T")}Z`
+      : `${text}T00:00:00Z`;
+    return Number.isNaN(new Date(iso).getTime()) ? null : iso;
+  }
+  return null;
+};
+
+const timestampFormatError = (field: string, value: string) => ({
+  code: 400,
+  message: `'${field}' must be in ISO 8601 or UTC 'YYYY-MM-DD[ hh:mm:ss]' format or 'CURRENT_TIMESTAMP' (${value})`,
+});
+
+// Write-side handling of accessDate/dateAdded/dateModified plus template
+// fill for new items: invalid timestamps fail the object, dateAdded is
+// preserved (normalized) or stamped, and dateModified is stamped with the
+// current time unless the client supplies a NEW explicit value.
+export const normalizeItemTimestampsForWrite = (
+  data: Record<string, unknown>,
+  existing: Record<string, unknown> | undefined,
+  now: string
+): { code: number; message: string } | null => {
+  for (const field of ["accessDate", "dateAdded", "dateModified"] as const) {
+    const value = data[field];
+    if (typeof value !== "string" || value === "") {
+      continue;
+    }
+    const normalized = normalizeZoteroTimestamp(value, now);
+    if (normalized === null) {
+      return timestampFormatError(field, value);
+    }
+    data[field] = normalized;
+  }
+
+  if (!existing) {
+    if (typeof data.dateAdded !== "string" || data.dateAdded === "") {
+      data.dateAdded = now;
+    }
+    if (typeof data.dateModified !== "string" || data.dateModified === "") {
+      data.dateModified = now;
+    }
+    return null;
+  }
+
+  const previous =
+    typeof existing.dateModified === "string" ? existing.dateModified : "";
+  const incoming =
+    typeof data.dateModified === "string" ? data.dateModified : "";
+  if (!incoming || incoming === previous) {
+    data.dateModified = now;
+  }
+  if (typeof data.dateAdded !== "string" || data.dateAdded === "") {
+    const previousAdded =
+      typeof existing.dateAdded === "string" ? existing.dateAdded : now;
+    data.dateAdded = previousAdded;
+  }
+  return null;
+};
+
+// New items are stored with every valid field for their type present,
+// defaulting to '' — and null values are treated as empty strings.
+export const fillItemTemplateFields = (
+  data: Record<string, unknown>,
+  isNew: boolean
+) => {
+  for (const [field, value] of Object.entries(data)) {
+    if (value === null) {
+      data[field] = "";
+    }
+  }
+  if (!isNew) {
+    return data;
+  }
+  const itemType = typeof data.itemType === "string" ? data.itemType : "";
+  if (!itemType || itemType === "attachment" || itemType === "annotation") {
+    return data;
+  }
+  for (const entry of getItemTypeFields(itemType) ?? []) {
+    if (!(entry.field in data)) {
+      data[entry.field] = "";
+    }
+  }
+  return data;
+};
+
+export const validateItemNoteFieldForWrite = (
+  data: Record<string, unknown>
+): { code: number; message: string } | null => {
+  const itemType = typeof data.itemType === "string" ? data.itemType : "";
+  if (
+    "note" in data &&
+    itemType !== "note" &&
+    itemType !== "attachment" &&
+    itemType !== "annotation"
+  ) {
+    return {
+      code: 400,
+      message: `'note' property is valid only for note and attachment items`,
+    };
+  }
+  return null;
+};
+
 const maxItemFieldLength = 65_535;
 
 export const validateItemBatchFieldLengthsForWrite = (
@@ -1518,9 +1775,43 @@ export const validateItemBatchFieldLengthsForWrite = (
   return failures;
 };
 
+// dateModified is server-stamped on every effective change, so it is
+// excluded when deciding whether an upload actually changed anything.
 const stripVersionForCompare = (data: Record<string, unknown>) => {
-  const { version: _version, ...rest } = data;
+  const { version: _version, dateModified: _dateModified, ...rest } = data;
   return rest;
+};
+
+export const attachItemMeta = (
+  c: Context<{ Bindings: Bindings }>,
+  item: { data?: Record<string, unknown>; key: string; version?: number },
+  input: {
+    allItems: Array<{ data?: Record<string, unknown>; key: string }>;
+    groupName?: string;
+    libraryID: number;
+    libraryType: "group" | "user";
+  }
+) => {
+  const meta: Record<string, unknown> = {
+    ...((item as { meta?: Record<string, unknown> }).meta ?? {}),
+  };
+  const parsedDate = parseZoteroDate(item.data?.date);
+  if (parsedDate) {
+    meta.parsedDate = parsedDate;
+  }
+  meta.numChildren = input.allItems.filter(
+    (other) => other.data?.parentItem === item.key
+  ).length;
+  return {
+    ...item,
+    library: buildLibraryBlock(
+      c,
+      input.libraryType,
+      input.libraryID,
+      input.groupName
+    ),
+    meta,
+  };
 };
 
 export const jsonValuesEqual = (left: unknown, right: unknown): boolean => {
@@ -1611,13 +1902,30 @@ export const handleItemBatchWrite = async (
   }
   mergeItemWriteFailures(itemFailures, precondition.failed);
 
-  const finalItems: Record<string, unknown>[] = rawItems.map((object) => {
+  const now = nowISOTimestamp();
+  const finalItems: Record<string, unknown>[] = rawItems.map((object, index) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existingVersions.get(key) : undefined;
     const merged = current
       ? mergeItemUpdate(current.data, object, key, true)
       : { ...object };
-    return normalizeItemParentForWrite(normalizeItemDeletedForWrite(merged));
+    const normalized = normalizeItemParentForWrite(
+      normalizeItemDeletedForWrite(merged)
+    );
+    fillItemTemplateFields(normalized, !current);
+    const noteFieldFailure = validateItemNoteFieldForWrite(normalized);
+    if (noteFieldFailure && !(index in itemFailures)) {
+      itemFailures[index] = noteFieldFailure;
+    }
+    const timestampFailure = normalizeItemTimestampsForWrite(
+      normalized,
+      current?.data,
+      now
+    );
+    if (timestampFailure && !(index in itemFailures)) {
+      itemFailures[index] = timestampFailure;
+    }
+    return normalized;
   });
 
   mergeItemWriteFailures(itemFailures, normalizeItemBatchTagsForWrite(finalItems));
@@ -1720,8 +2028,20 @@ export const handleItemBatchWrite = async (
   );
   const version = relationVersion ?? result.version;
 
+  const postLibrary =
+    input.libraryType === "user"
+      ? await input.store.listItems(input.libraryID)
+      : await input.store.listGroupItems(input.libraryID);
+  const enrichedSuccessful = result.successful.map((item) =>
+    attachItemMeta(c, item, {
+      allItems: postLibrary.items,
+      libraryID: input.libraryID,
+      libraryType: input.libraryType,
+    })
+  );
+
   return c.json(
-    buildWriteReport(toWrite, result.successful, itemFailures, unchanged),
+    buildWriteReport(toWrite, enrichedSuccessful, itemFailures, unchanged),
     200,
     {
       "Last-Modified-Version": `${version}`,
@@ -2527,6 +2847,19 @@ export const updateItemInLibrary = async (
     hasDirectCollections(data)
   ) {
     delete data.parentItem;
+  }
+  fillItemTemplateFields(data, !existing);
+  const noteFieldFailure = validateItemNoteFieldForWrite(data);
+  if (noteFieldFailure) {
+    return c.text(noteFieldFailure.message, 400);
+  }
+  const timestampFailure = normalizeItemTimestampsForWrite(
+    data,
+    existing?.data,
+    nowISOTimestamp()
+  );
+  if (timestampFailure) {
+    return c.text(timestampFailure.message, 400);
   }
   normalizeItemParentForWrite(data);
   const tagFailure = normalizeItemTagsForWrite(data);

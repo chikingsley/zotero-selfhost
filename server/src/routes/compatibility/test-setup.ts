@@ -1,4 +1,4 @@
-import { requireRoot } from "./shared";
+import { registerUserIdentity, requireRoot } from "./shared";
 import { clearMemoryCollections } from "../../collections";
 import { clearMemoryDeleted } from "../../deleted";
 import { clearMemorySearches } from "../../searches";
@@ -16,6 +16,10 @@ compatibility.post("/test/setup", async (c) => {
 
   const userID = Number.parseInt(c.req.query("u") ?? "1", 10);
   const userID2 = Number.parseInt(c.req.query("u2") ?? "2", 10);
+  // Identities from the official test config (config/default.json):
+  // library envelopes report these as displayName / URL slug.
+  registerUserIdentity(userID, "phpunit", "Real Name");
+  registerUserIdentity(userID2, "phpunit2", "phpunit2");
   const user1Key = c.env.ZOTERO_API_KEY || generateZoteroKey().toLowerCase();
   const user2Key = generateZoteroKey().toLowerCase();
   const store = createCompatibilityStore(c.env);

@@ -124,18 +124,26 @@ const renderItemAtomEntry = (
   contents: ItemAtomContent[],
   libraryID: number,
   style?: string | null
-): string =>
-  [
+): string => {
+  const meta = (item as { meta?: Record<string, unknown> }).meta ?? {};
+  return [
     "<entry>",
     `<zapi:key>${escapeXML(item.key)}</zapi:key>`,
     `<zapi:version>${item.version ?? 0}</zapi:version>`,
     getCreatorSummary(item)
       ? `<zapi:creatorSummary>${escapeXML(getCreatorSummary(item) ?? "")}</zapi:creatorSummary>`
       : "",
+    typeof meta.parsedDate === "string"
+      ? `<zapi:parsedDate>${escapeXML(meta.parsedDate)}</zapi:parsedDate>`
+      : "",
+    typeof meta.numChildren === "number"
+      ? `<zapi:numChildren>${meta.numChildren}</zapi:numChildren>`
+      : "",
     `<title>${escapeXML(getTitle(item))}</title>`,
     renderAtomContent(item, contents, libraryID, style),
     "</entry>",
   ].join("");
+};
 
 const renderAtomContent = (
   item: ExportItem,
