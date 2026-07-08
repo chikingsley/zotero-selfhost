@@ -12,14 +12,16 @@ export const noteToTitle = (note: string, ignoreNewline = false): string => {
   }
 
   const text = decodeHTMLEntities(
-    note
+    Array.from(note)
       .slice(0, maxNoteTitleLength * 5)
+      .join("")
       .replace(/<\/p>[\s]*<p>/gi, "</p>\n<p>")
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
       .replace(/<[^>]*>/g, "")
   );
-  let title = Array.from(text).slice(0, maxNoteTitleLength).join("");
+  let title = utf8Strcut(text, maxNoteTitleLength);
   if (ignoreNewline) {
-    title = title.replace(/\s+/g, " ");
+    title = collapsePhpWhitespace(title);
   } else {
     const newline = title.indexOf("\n");
     if (newline !== -1) {
@@ -38,6 +40,7 @@ export const validateItemNoteForWrite = (
   }
 
   if ([...data.note].length <= maxNoteLength) {
+    data.note = sanitizeNote(data.note);
     return null;
   }
 
@@ -63,16 +66,25 @@ export const validateItemBatchNotesForWrite = (
 };
 
 const getNotePreview = (note: string): string => {
-  const withoutBlankLeadingLines = note
-    .replace(/^(\s|<p>&nbsp;<\/p>)+/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return withoutBlankLeadingLines.slice(0, 80);
+  const trimmed = phpTrim(note);
+  let excerpt = trimZoteroWhitespace(noteToTitle(trimmed, true));
+
+  if (!excerpt) {
+    excerpt = trimZoteroWhitespace(
+      decodeHTMLEntities(
+        collapsePhpWhitespace(
+          Array.from(trimmed).slice(0, maxNoteTitleLength).join("")
+        )
+      )
+    );
+  }
+
+  return escapePreview(excerpt);
 };
 
 const decodeHTMLEntities = (value: string): string =>
   value
-    .replace(/&nbsp;/gi, " ")
+    .replace(/&nbsp;/gi, "\u00a0")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">")
@@ -82,3 +94,42 @@ const decodeHTMLEntities = (value: string): string =>
     .replace(/&#x([0-9a-f]+);/gi, (_match, code) =>
       String.fromCodePoint(Number.parseInt(code, 16))
     );
+
+const collapsePhpWhitespace = (value: string): string =>
+  value.replace(/[ \t\n\r\f\v]+/g, " ");
+
+const phpTrim = (value: string): string =>
+  value.replace(/^[ \t\n\r\v\0]+|[ \t\n\r\v\0]+$/g, "");
+
+const trimZoteroWhitespace = (value: string): string =>
+  value.replace(/^[ \t\n\r\v\0\u00a0]+|[ \t\n\r\v\0\u00a0]+$/gu, "");
+
+const utf8Strcut = (value: string, maxBytes: number): string => {
+  let bytes = 0;
+  let output = "";
+
+  for (const character of value) {
+    const characterBytes = new TextEncoder().encode(character).length;
+    if (bytes + characterBytes > maxBytes) {
+      break;
+    }
+    bytes += characterBytes;
+    output += character;
+  }
+
+  return output;
+};
+
+const escapePreview = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const sanitizeNote = (note: string): string => {
+  if (phpTrim(note) === "") {
+    return note;
+  }
+
+  return note.replace(/<([a-z][\w:-]*)\s+>/gi, "<$1>");
+};

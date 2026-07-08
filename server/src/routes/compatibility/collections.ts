@@ -1,4 +1,4 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getRequestedCollectionKeys, renderCollectionList, renderItemList, filterItemsForRequest, getIfUnmodifiedSinceVersion, normalizeObjectBatchDeletedForWrite, upsertCollectionInLibrary } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getRequestedCollectionKeys, renderCollectionList, renderItemList, filterItemsForRequest, getIfUnmodifiedSinceVersion, normalizeObjectBatchDeletedForWrite, upsertCollectionInLibrary, wantsAtomResponse, renderJSONAtomEntry, atomHeaders } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createCompatibilityStore } from "../../storage";
 import { compatibility } from "./router";
@@ -24,8 +24,23 @@ compatibility.get("/groups/:groupID/collections/:collectionKey", async (c) => {
     return c.text("Collection not found", 404);
   }
 
+  const objectVersion = result.collection.version ?? result.version;
+  if (wantsAtomResponse(c)) {
+    return c.text(
+      renderJSONAtomEntry({
+        content: result.collection.data ?? {},
+        id: `collections/${result.collection.key}`,
+        key: result.collection.key,
+        title: String(result.collection.data?.name ?? result.collection.key),
+        version: objectVersion,
+      }),
+      200,
+      atomHeaders(objectVersion)
+    );
+  }
+
   return c.json(result.collection, 200, {
-    "Last-Modified-Version": `${result.version}`,
+    "Last-Modified-Version": `${objectVersion}`,
   });
 });
 
@@ -189,6 +204,26 @@ compatibility.put("/groups/:groupID/collections/:collectionKey", async (c) => {
 });
 
 
+compatibility.patch("/groups/:groupID/collections/:collectionKey", async (c) => {
+  const groupID = parseNumericID(c.req.param("groupID"));
+  if (groupID === null) {
+    return c.text("Invalid groupID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  if (!(await requireGroupEdit(c, store, groupID))) {
+    return c.text("Invalid key", 403);
+  }
+
+  return upsertCollectionInLibrary(c, {
+    collectionKey: c.req.param("collectionKey"),
+    libraryID: groupID,
+    libraryType: "group",
+    patchMode: true,
+  });
+});
+
+
 compatibility.delete("/groups/:groupID/collections", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -241,8 +276,23 @@ compatibility.get("/users/:userID/collections/:collectionKey", async (c) => {
     return c.text("Collection not found", 404);
   }
 
+  const objectVersion = result.collection.version ?? result.version;
+  if (wantsAtomResponse(c)) {
+    return c.text(
+      renderJSONAtomEntry({
+        content: result.collection.data ?? {},
+        id: `collections/${result.collection.key}`,
+        key: result.collection.key,
+        title: String(result.collection.data?.name ?? result.collection.key),
+        version: objectVersion,
+      }),
+      200,
+      atomHeaders(objectVersion)
+    );
+  }
+
   return c.json(result.collection, 200, {
-    "Last-Modified-Version": `${result.version}`,
+    "Last-Modified-Version": `${objectVersion}`,
   });
 });
 
@@ -413,6 +463,26 @@ compatibility.put("/users/:userID/collections/:collectionKey", async (c) => {
     collectionKey: c.req.param("collectionKey"),
     libraryID: userID,
     libraryType: "user",
+  });
+});
+
+
+compatibility.patch("/users/:userID/collections/:collectionKey", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  if (!(await requireUserWrite(c, store, userID))) {
+    return c.text("Invalid key", 403);
+  }
+
+  return upsertCollectionInLibrary(c, {
+    collectionKey: c.req.param("collectionKey"),
+    libraryID: userID,
+    libraryType: "user",
+    patchMode: true,
   });
 });
 

@@ -1,4 +1,4 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getIfUnmodifiedSinceVersion, normalizeObjectDeletedForWrite, normalizeObjectBatchDeletedForWrite, renderJSONAtomEntry, atomHeaders, wantsAtomResponse, isHeadRequest, settingHeaders, isSettingsObject, getRequestedSearchKeys, getSearchSinceVersion, withSearchSchema, renderSearchList, renderSearchWriteResult, parseSearchWriteBody } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getIfUnmodifiedSinceVersion, checkSingleObjectWriteVersion, normalizeObjectDeletedForWrite, normalizeObjectBatchDeletedForWrite, renderJSONAtomEntry, atomHeaders, wantsAtomResponse, isHeadRequest, settingHeaders, isSettingsObject, getRequestedSearchKeys, getSearchSinceVersion, withSearchSchema, renderSearchList, renderSearchWriteResult, parseSearchWriteBody } from "./shared";
 import { createSearchStore } from "../../searches";
 import { createCompatibilityStore } from "../../storage";
 import { compatibility } from "./router";
@@ -62,22 +62,28 @@ compatibility.put("/groups/:groupID/searches/:searchKey", async (c) => {
     return c.text("Invalid JSON", 400);
   }
   const searchStore = createSearchStore(c.env);
-  const preconditionVersion = getIfUnmodifiedSinceVersion(c);
   const existing = await searchStore.getSearch(
     "group",
     groupID,
     c.req.param("searchKey")
   );
-  if (!existing && preconditionVersion !== 0) {
-    return c.text("Search not found", 404);
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Search",
+    existing ? existing.search.version ?? 0 : null,
+    body,
+    "PUT"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
   }
 
-  const searchData = normalizeObjectDeletedForWrite(body);
+  const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
   const result = await searchStore.upsertSearches(
     "group",
     groupID,
     [{ ...searchData, key: c.req.param("searchKey") }],
-    existing ? preconditionVersion : null
+    null
   );
   if (result.preconditionFailed) {
     return c.text("Library has been modified", 412);
@@ -107,12 +113,33 @@ compatibility.patch("/groups/:groupID/searches/:searchKey", async (c) => {
     return c.text("Invalid JSON", 400);
   }
 
-  const searchData = normalizeObjectDeletedForWrite(body);
-  const result = await createSearchStore(c.env).upsertSearches(
+  const searchStore = createSearchStore(c.env);
+  const existing = await searchStore.getSearch(
+    "group",
+    groupID,
+    c.req.param("searchKey")
+  );
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Search",
+    existing ? existing.search.version ?? 0 : null,
+    body,
+    "PATCH"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+  }
+
+  const searchData = normalizeObjectDeletedForWrite(
+    existing
+      ? { ...existing.search.data, ...versionCheck.editable }
+      : versionCheck.editable
+  );
+  const result = await searchStore.upsertSearches(
     "group",
     groupID,
     [{ ...searchData, key: c.req.param("searchKey") }],
-    getIfUnmodifiedSinceVersion(c)
+    null
   );
   if (result.preconditionFailed) {
     return c.text("Library has been modified", 412);
@@ -287,22 +314,28 @@ compatibility.put("/users/:userID/searches/:searchKey", async (c) => {
     return c.text("Invalid JSON", 400);
   }
   const searchStore = createSearchStore(c.env);
-  const preconditionVersion = getIfUnmodifiedSinceVersion(c);
   const existing = await searchStore.getSearch(
     "user",
     userID,
     c.req.param("searchKey")
   );
-  if (!existing && preconditionVersion !== 0) {
-    return c.text("Search not found", 404);
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Search",
+    existing ? existing.search.version ?? 0 : null,
+    body,
+    "PUT"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
   }
 
-  const searchData = normalizeObjectDeletedForWrite(body);
+  const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
   const result = await searchStore.upsertSearches(
     "user",
     userID,
     [{ ...searchData, key: c.req.param("searchKey") }],
-    existing ? preconditionVersion : null
+    null
   );
   if (result.preconditionFailed) {
     return c.text("Library has been modified", 412);
@@ -332,12 +365,33 @@ compatibility.patch("/users/:userID/searches/:searchKey", async (c) => {
     return c.text("Invalid JSON", 400);
   }
 
-  const searchData = normalizeObjectDeletedForWrite(body);
-  const result = await createSearchStore(c.env).upsertSearches(
+  const searchStore = createSearchStore(c.env);
+  const existing = await searchStore.getSearch(
+    "user",
+    userID,
+    c.req.param("searchKey")
+  );
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Search",
+    existing ? existing.search.version ?? 0 : null,
+    body,
+    "PATCH"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+  }
+
+  const searchData = normalizeObjectDeletedForWrite(
+    existing
+      ? { ...existing.search.data, ...versionCheck.editable }
+      : versionCheck.editable
+  );
+  const result = await searchStore.upsertSearches(
     "user",
     userID,
     [{ ...searchData, key: c.req.param("searchKey") }],
-    getIfUnmodifiedSinceVersion(c)
+    null
   );
   if (result.preconditionFailed) {
     return c.text("Library has been modified", 412);

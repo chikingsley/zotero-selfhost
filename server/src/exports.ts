@@ -155,7 +155,8 @@ const renderAtomContent = (
 
   const content = contents[0] ?? "json";
   if (content === "json") {
-    return `<content type="application/json">${escapeXML(JSON.stringify(item))}</content>`;
+    // Atom content=json carries the item's data JSON, not the API envelope.
+    return `<content type="application/json">${escapeXML(JSON.stringify(item.data ?? item))}</content>`;
   }
   if (content === "csljson") {
     return `<content zapi:type="csljson" type="application/json">${escapeXML(JSON.stringify(toCSLJSON(item, libraryID)))}</content>`;
@@ -175,7 +176,7 @@ const renderAtomSubcontent = (
   style?: string | null
 ): string => {
   if (content === "json") {
-    return escapeXML(JSON.stringify(item));
+    return escapeXML(JSON.stringify(item.data ?? item));
   }
   if (content === "csljson") {
     return escapeXML(JSON.stringify(toCSLJSON(item, libraryID)));

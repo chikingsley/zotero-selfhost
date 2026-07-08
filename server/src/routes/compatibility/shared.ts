@@ -1461,6 +1461,111 @@ export const buildWriteReport = (
 };
 
 
+export type SingleObjectWriteVersionCheck =
+  | { editable: Record<string, unknown>; ok: true }
+  | {
+      code: ContentfulStatusCode;
+      headers?: Record<string, string>;
+      message: string;
+      ok: false;
+    };
+
+// Port of the official dataserver's checkSingleObjectWriteVersion
+// (ApiController.php): resolve the expected object version from the
+// If-Unmodified-Since-Version header and/or the JSON 'version' property
+// (envelope bodies carry their content in .data), then enforce the
+// missing/existing × version matrix. A 412 on an existing object carries the
+// object's current version in Last-Modified-Version; the 400s carry none.
+export const checkSingleObjectWriteVersion = (
+  c: Context<{ Bindings: Bindings }>,
+  objectTypeLabel: "Collection" | "Item" | "Search",
+  existingVersion: number | null,
+  body: Record<string, unknown>,
+  method: "PATCH" | "PUT"
+): SingleObjectWriteVersionCheck => {
+  const editable = isRecord(body.data)
+    ? (body.data as Record<string, unknown>)
+    : body;
+
+  const headerRaw = c.req.header("If-Unmodified-Since-Version");
+  let headerVersion: number | null = null;
+  if (headerRaw !== undefined) {
+    if (!/^\d+$/.test(headerRaw.trim())) {
+      return {
+        code: 400,
+        message: `Invalid If-Unmodified-Since-Version value '${headerRaw}'`,
+        ok: false,
+      };
+    }
+    headerVersion = Number.parseInt(headerRaw, 10);
+  }
+
+  let propVersion: number | null = null;
+  if (editable.version !== undefined) {
+    if (typeof editable.version !== "number" || !Number.isInteger(editable.version)) {
+      return {
+        code: 400,
+        message: `Invalid JSON 'version' property value '${String(editable.version)}'`,
+        ok: false,
+      };
+    }
+    propVersion = editable.version;
+  }
+
+  if (
+    headerVersion !== null &&
+    propVersion !== null &&
+    headerVersion !== propVersion
+  ) {
+    return {
+      code: 400,
+      message: `If-Unmodified-Since-Version value does not match JSON 'version' property (${headerVersion} != ${propVersion})`,
+      ok: false,
+    };
+  }
+
+  const version = headerVersion ?? propVersion;
+
+  if (existingVersion === null) {
+    if (method === "PATCH" && version === null) {
+      return {
+        code: 404,
+        message: `${objectTypeLabel} not found (to create, use If-Unmodified-Since-Version: 0, JSON 'version' 0, or PUT method)`,
+        ok: false,
+      };
+    }
+    if (version !== null && version > 0) {
+      return {
+        code: 412,
+        message: `${objectTypeLabel} not found (expected version ${version})`,
+        ok: false,
+      };
+    }
+    return { editable, ok: true };
+  }
+
+  if (version === null) {
+    return {
+      code: 428,
+      message:
+        "Either If-Unmodified-Since-Version or object version property must be provided for key-based writes",
+      ok: false,
+    };
+  }
+
+  if (existingVersion > version) {
+    return {
+      code: 412,
+      headers: { "Last-Modified-Version": `${existingVersion}` },
+      message: `${objectTypeLabel} has been modified since specified version (expected ${version}, found ${existingVersion})`,
+      ok: false,
+    };
+  }
+
+  return { editable, ok: true };
+};
+
+
 export const renderTagList = (
   c: Context<{ Bindings: Bindings }>,
   tags: Array<{ tag: string }>,
@@ -2123,33 +2228,31 @@ export const updateItemInLibrary = async (
       ? await input.store.getItem(input.libraryID, input.itemKey)
       : await input.store.getGroupItem(input.libraryID, input.itemKey);
   const existing = existingResult?.items[0];
-  const preconditionVersion = getIfUnmodifiedSinceVersion(c);
   const body = await c.req.json().catch(() => null);
   if (!body || Array.isArray(body) || typeof body !== "object") {
     return c.text("Invalid item JSON", 400);
   }
 
-  if (!existing && (input.patchMode || preconditionVersion !== 0)) {
-    return c.text("Item not found", 404);
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Item",
+    existing ? existing.version ?? 0 : null,
+    body as Record<string, unknown>,
+    input.patchMode ? "PATCH" : "PUT"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
   }
-
-  if (
-    existing &&
-    preconditionVersion !== null &&
-    existing.version > preconditionVersion
-  ) {
-    return c.text("Object has been modified", 412);
-  }
+  const editable = versionCheck.editable;
 
   const data = normalizeItemDeletedForWrite(
-    mergeItemUpdate(
-      existing?.data ?? {},
-      body as Record<string, unknown>,
-      input.itemKey,
-      input.patchMode
-    )
+    mergeItemUpdate(existing?.data ?? {}, editable, input.itemKey, input.patchMode)
   );
-  if (input.patchMode && !("parentItem" in body) && hasDirectCollections(data)) {
+  if (
+    input.patchMode &&
+    !("parentItem" in editable) &&
+    hasDirectCollections(data)
+  ) {
     delete data.parentItem;
   }
   normalizeItemParentForWrite(data);
@@ -2236,6 +2339,7 @@ export const upsertCollectionInLibrary = async (
     collectionKey: string;
     libraryID: number;
     libraryType: "group" | "user";
+    patchMode?: boolean;
   }
 ) => {
   const body = await c.req.json().catch(() => null);
@@ -2244,26 +2348,27 @@ export const upsertCollectionInLibrary = async (
   }
 
   const collectionStore = createCollectionStore(c.env);
-  const preconditionVersion = getIfUnmodifiedSinceVersion(c);
   const existing = await collectionStore.getCollection(
     input.libraryType,
     input.libraryID,
     input.collectionKey
   );
 
-  if (!existing && preconditionVersion !== 0) {
-    return c.text("Collection not found", 404);
-  }
-  if (
-    existing &&
-    preconditionVersion !== null &&
-    existing.collection.version > preconditionVersion
-  ) {
-    return c.text("Collection has been modified", 412);
+  const versionCheck = checkSingleObjectWriteVersion(
+    c,
+    "Collection",
+    existing ? existing.collection.version ?? 0 : null,
+    body as Record<string, unknown>,
+    input.patchMode ? "PATCH" : "PUT"
+  );
+  if (!versionCheck.ok) {
+    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
   }
 
   const collectionData = normalizeObjectDeletedForWrite(
-    body as Record<string, unknown>
+    input.patchMode && existing
+      ? { ...existing.collection.data, ...versionCheck.editable }
+      : versionCheck.editable
   );
   const result = await collectionStore.createCollections(
     input.libraryType,

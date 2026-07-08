@@ -232,6 +232,19 @@ const memorySettingsStore: SettingsStore = {
       return result;
     }
 
+    // Official checkJSONObjectVersion: a per-setting 'version' property lower
+    // than the stored setting's version fails the whole request with 412.
+    for (const [settingKey, payload] of entries) {
+      const requestedVersion = payload?.version;
+      if (typeof requestedVersion === "number") {
+        const current = settings.get(settingKey);
+        if (current && current.version > requestedVersion) {
+          result.preconditionFailed = true;
+          return result;
+        }
+      }
+    }
+
     const changes: Array<[string, unknown, number]> = [];
 
     entries.forEach(([settingKey, payload], index) => {
