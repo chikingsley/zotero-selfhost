@@ -298,6 +298,72 @@ const isMemoryStoredFileAttachment = (item: ItemRecord | undefined): boolean =>
   typeof item.data.linkMode === "string" &&
   storedAttachmentLinkModes.has(item.data.linkMode);
 
+const getItemType = (item: ItemRecord): string =>
+  typeof item.data.itemType === "string" ? item.data.itemType : "";
+
+const isRegularItem = (item: ItemRecord): boolean => {
+  const itemType = getItemType(item);
+  return itemType !== "attachment" && itemType !== "annotation" && itemType !== "note";
+};
+
+const isFileAttachmentWithDescendants = (item: ItemRecord): boolean =>
+  getItemType(item) === "attachment" &&
+  typeof item.data.linkMode === "string" &&
+  item.data.linkMode !== "embedded_image" &&
+  item.data.linkMode !== "linked_url";
+
+const isDeleteChildOfItem = (parent: ItemRecord, child: ItemRecord): boolean => {
+  if (child.data.parentItem !== parent.key) {
+    return false;
+  }
+
+  const childType = getItemType(child);
+  if (isRegularItem(parent)) {
+    return childType === "attachment" || childType === "note";
+  }
+  if (getItemType(parent) === "note") {
+    return childType === "attachment";
+  }
+  if (isFileAttachmentWithDescendants(parent)) {
+    return childType === "annotation";
+  }
+  return false;
+};
+
+const collectItemDeleteDescendants = (
+  itemsByKey: Map<string, ItemRecord>,
+  parentKey: string,
+  deleted: Set<string>
+) => {
+  const parent = itemsByKey.get(parentKey);
+  if (!parent) {
+    return;
+  }
+
+  for (const child of itemsByKey.values()) {
+    if (!isDeleteChildOfItem(parent, child) || deleted.has(child.key)) {
+      continue;
+    }
+    deleted.add(child.key);
+    collectItemDeleteDescendants(itemsByKey, child.key, deleted);
+  }
+};
+
+const expandItemDeleteKeys = (
+  itemsByKey: Map<string, ItemRecord>,
+  itemKeys: string[]
+): string[] => {
+  const deleted = new Set<string>();
+  for (const itemKey of itemKeys) {
+    if (!itemsByKey.has(itemKey)) {
+      continue;
+    }
+    deleted.add(itemKey);
+    collectItemDeleteDescendants(itemsByKey, itemKey, deleted);
+  }
+  return [...deleted];
+};
+
 const getNonEmptyString = (value: unknown): string | null =>
   typeof value === "string" && value !== "" ? value : null;
 
@@ -450,10 +516,12 @@ const deleteMemoryItems = (
   ifUnmodifiedSinceVersion: number | null = null
 ) => {
   const library = getMemoryLibrary(libraryType, libraryID);
-  if (
-    ifUnmodifiedSinceVersion !== null &&
-    library.version > ifUnmodifiedSinceVersion
-  ) {
+  const existingItems = itemKeys
+    .map((itemKey) => library.items.get(itemKey))
+    .filter((item) => item !== undefined);
+  if (existingItems.some((item) =>
+    ifUnmodifiedSinceVersion !== null && item.version > ifUnmodifiedSinceVersion
+  )) {
     return {
       deleted: [],
       preconditionFailed: true,
@@ -461,7 +529,7 @@ const deleteMemoryItems = (
     };
   }
 
-  const existingKeys = itemKeys.filter((itemKey) => library.items.has(itemKey));
+  const existingKeys = expandItemDeleteKeys(library.items, itemKeys);
   if (existingKeys.length > 0) {
     library.version += 1;
     for (const itemKey of existingKeys) {
@@ -2342,17 +2410,6 @@ class D1CompatibilityStore implements CompatibilityStore {
     ifUnmodifiedSinceVersion: number | null = null
   ): Promise<{ deleted: string[]; preconditionFailed: boolean; version: number }> {
     const version = await this.getLibraryVersion(libraryType, libraryID);
-    if (
-      ifUnmodifiedSinceVersion !== null &&
-      version > ifUnmodifiedSinceVersion
-    ) {
-      return {
-        deleted: [],
-        preconditionFailed: true,
-        version,
-      };
-    }
-
     if (itemKeys.length === 0) {
       return {
         deleted: [],
@@ -2363,7 +2420,7 @@ class D1CompatibilityStore implements CompatibilityStore {
 
     const rows = await this.db
       .prepare(
-        `SELECT item_key
+        `SELECT item_key, version, data_json
          FROM items
          WHERE library_type = ?
            AND library_id = ?
@@ -2371,16 +2428,43 @@ class D1CompatibilityStore implements CompatibilityStore {
            AND item_key IN (${itemKeys.map(() => "?").join(",")})`
       )
       .bind(libraryType, libraryID, ...itemKeys)
-      .all<{ item_key: string }>();
-    const existingKeys = rows.results.map((row) => row.item_key);
+      .all<D1ItemRow>();
+    const existingItems = rows.results.map(parseItemRow);
 
-    if (existingKeys.length === 0) {
+    if (existingItems.length === 0) {
       return {
         deleted: [],
         preconditionFailed: false,
         version,
       };
     }
+    if (existingItems.some((item) =>
+      ifUnmodifiedSinceVersion !== null && item.version > ifUnmodifiedSinceVersion
+    )) {
+      return {
+        deleted: [],
+        preconditionFailed: true,
+        version,
+      };
+    }
+
+    const allRows = await this.db
+      .prepare(
+        `SELECT item_key, version, data_json
+         FROM items
+         WHERE library_type = ?
+           AND library_id = ?
+           AND deleted_at IS NULL`
+      )
+      .bind(libraryType, libraryID)
+      .all<D1ItemRow>();
+    const itemsByKey = new Map(
+      allRows.results.map((row) => {
+        const item = parseItemRow(row);
+        return [item.key, item];
+      })
+    );
+    const existingKeys = expandItemDeleteKeys(itemsByKey, itemKeys);
 
     const nextVersion = version + 1;
     await this.db.batch([

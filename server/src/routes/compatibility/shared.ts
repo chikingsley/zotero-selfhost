@@ -115,6 +115,10 @@ export const requireUser = async (
   _store: CompatibilityStore,
   userID: number
 ): Promise<boolean> => {
+  // Root (Basic-auth admin) credentials can read any user library.
+  if (isRootRequest(c)) {
+    return true;
+  }
   const apiKey = getRequestApiKey(c);
   if (!apiKey) {
     return false;
@@ -2909,11 +2913,19 @@ export const getItemParentFailure = (
     };
   }
   if (typeof parent.parentItem === "string" && parent.parentItem.length > 0) {
-    return {
-      code: 409,
-      data: { parentItem },
-      message: `Parent item ${parentItem} cannot be a child item`,
-    };
+    // Child parents are allowed where the official hierarchy permits depth:
+    // embedded images under (possibly child) notes, annotations under
+    // (possibly child) attachments.
+    const childParentAllowed =
+      (isEmbeddedImageAttachment(item) && parent.itemType === "note") ||
+      (item.itemType === "annotation" && parent.itemType === "attachment");
+    if (!childParentAllowed) {
+      return {
+        code: 409,
+        data: { parentItem },
+        message: `Parent item ${parentItem} cannot be a child item`,
+      };
+    }
   }
 
   return null;
