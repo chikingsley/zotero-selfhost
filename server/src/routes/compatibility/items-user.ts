@@ -1,4 +1,4 @@
-import { parseNumericID, requireUser, requireUserWrite, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, handleItemBatchWrite, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, type ItemWriteFailures, mergeItemWriteFailures, type ExistingObjectVersions, evaluateBatchWritePreconditions, buildWriteReport, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createFullTextStore } from "../../fulltext";
 import { createCompatibilityStore } from "../../storage";
@@ -229,111 +229,9 @@ compatibility.post("/users/:userID/items", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const body = await c.req.json().catch(() => null);
-  const translationResponse = await handleWebTranslationWrite(c, {
-    body,
+  return handleItemBatchWrite(c, {
     libraryID: userID,
     libraryType: "user",
     store,
   });
-  if (translationResponse) {
-    return translationResponse;
-  }
-  if (!Array.isArray(body)) {
-    return c.json({ error: "Expected an item array" }, 400);
-  }
-
-  const items = normalizeItemBatchDeletedForWrite(
-    body as Record<string, unknown>[]
-  );
-
-  const library = await store.listItems(userID);
-  const existingVersions: ExistingObjectVersions = new Map(
-    library.items.map((item) => [
-      item.key,
-      { data: item.data ?? {}, version: item.version ?? 0 },
-    ])
-  );
-  const precondition = evaluateBatchWritePreconditions(
-    items,
-    existingVersions,
-    library.version,
-    getIfUnmodifiedSinceVersion(c),
-    "Item"
-  );
-  if (precondition.libraryPreconditionFailed) {
-    return c.text("Library has been modified", 412, {
-      "Last-Modified-Version": `${library.version}`,
-    });
-  }
-
-  const itemFailures: ItemWriteFailures = { ...precondition.failed };
-  mergeItemWriteFailures(itemFailures, normalizeItemBatchTagsForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchNotesForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchRelationsForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchCreatorsForWrite(items, true));
-  mergeItemWriteFailures(itemFailures, validateItemBatchAnnotationsForWrite(items));
-  const annotationParentResult = await validateItemBatchAnnotationParentsForWrite(
-    store,
-    "user",
-    userID,
-    items
-  );
-  mergeItemWriteFailures(itemFailures, annotationParentResult.failures);
-  await validateItemBatchParentsForWrite(store, "user", userID, items, itemFailures);
-
-  const toWrite = precondition.toWrite.filter(
-    (entry) => !(entry.index in itemFailures)
-  );
-
-  const missingCollectionKeys = await createCollectionStore(
-    c.env
-  ).findMissingCollectionKeys(
-    "user",
-    userID,
-    toWrite.map((entry) => entry.object)
-  );
-  if (missingCollectionKeys.length) {
-    return collectionFailureResponse(c, missingCollectionKeys, library.version);
-  }
-
-  const writeToken = c.req.header("Zotero-Write-Token");
-  const result = toWrite.length
-    ? await store.createItems(
-        userID,
-        toWrite.map((entry) => entry.object),
-        writeToken
-      )
-    : {
-        duplicateWriteToken: false,
-        success: [],
-        successful: [],
-        version: library.version,
-      };
-
-  if (result.duplicateWriteToken) {
-    return c.text("Write token has already been used", 412);
-  }
-
-  const relationVersion = await syncRelatedItemRelations(
-    { libraryID: userID, libraryType: "user", store },
-    result.successful
-  );
-  const version = relationVersion ?? result.version;
-
-  return c.json(
-    buildWriteReport(
-      toWrite,
-      result.successful,
-      itemFailures,
-      precondition.unchanged
-    ),
-    200,
-    {
-      "Last-Modified-Version": `${version}`,
-      ...(result.successful.length > 0
-        ? notificationHeaders(topicUpdatedNotification("user", userID, version))
-        : {}),
-    }
-  );
 });

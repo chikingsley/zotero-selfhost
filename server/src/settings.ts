@@ -77,7 +77,7 @@ interface D1SettingRow {
   version: number;
 }
 
-const maxValueLength = 1_000_000;
+const maxValueLength = 30_000;
 const allowedSettingNames = new Set([
   "attachmentRenameTemplate",
   "autoRenameFiles",
@@ -245,7 +245,7 @@ const memorySettingsStore: SettingsStore = {
       }
     }
 
-    const changes: Array<[string, unknown, number]> = [];
+  const changes: Array<[string, unknown, number]> = [];
 
     entries.forEach(([settingKey, payload], index) => {
       const failure = validateSettingWrite(
@@ -471,6 +471,18 @@ class D1SettingsStore implements SettingsStore {
       libraryID,
       entries.map(([settingKey]) => settingKey)
     );
+
+    for (const [settingKey, payload] of entries) {
+      const requestedVersion = payload?.version;
+      if (typeof requestedVersion === "number") {
+        const current = existing.get(settingKey);
+        if (current && current.version > requestedVersion) {
+          result.preconditionFailed = true;
+          return result;
+        }
+      }
+    }
+
     const changes: Array<[string, unknown, number]> = [];
 
     entries.forEach(([settingKey, payload], index) => {
@@ -667,6 +679,11 @@ const validateSettingWrite = (
   }
 
   if (!isSettingPayload(payload) || !("value" in payload)) {
+    const nameFailure = validateSettingName(settingKey);
+    if (nameFailure) {
+      return nameFailure;
+    }
+
     return {
       code: 400,
       message: "Setting object must include 'value'",
@@ -676,16 +693,25 @@ const validateSettingWrite = (
   return validateSettingValue(libraryType, settingKey, payload.value);
 };
 
+const validateSettingName = (settingKey: string): SettingFailure | null => {
+  if (isAllowedSettingName(settingKey)) {
+    return null;
+  }
+
+  return {
+    code: 400,
+    message: `Invalid setting '${settingKey}'`,
+  };
+};
+
 const validateSettingValue = (
   libraryType: LibraryType,
   settingKey: string,
   value: unknown
 ): SettingFailure | null => {
-  if (!isAllowedSettingName(settingKey)) {
-    return {
-      code: 400,
-      message: `Unsupported setting '${settingKey}'`,
-    };
+  const nameFailure = validateSettingName(settingKey);
+  if (nameFailure) {
+    return nameFailure;
   }
 
   const encodedLength = typeof value === "string"
@@ -693,7 +719,7 @@ const validateSettingValue = (
     : JSON.stringify(value)?.length ?? 0;
   if (encodedLength > maxValueLength) {
     return {
-      code: 413,
+      code: 400,
       message: `'value' cannot be longer than ${maxValueLength} characters`,
     };
   }

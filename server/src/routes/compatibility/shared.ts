@@ -1494,6 +1494,246 @@ export const buildWriteReport = (
 };
 
 
+const maxItemFieldLength = 65_535;
+
+export const validateItemBatchFieldLengthsForWrite = (
+  items: Record<string, unknown>[]
+): ItemWriteFailures => {
+  const failures: ItemWriteFailures = {};
+  items.forEach((item, index) => {
+    for (const [field, value] of Object.entries(item)) {
+      // Notes have their own dedicated size validation.
+      if (field === "note") {
+        continue;
+      }
+      if (typeof value === "string" && value.length > maxItemFieldLength) {
+        failures[index] = {
+          code: 413,
+          message: `Field '${field}' value too long`,
+        };
+        break;
+      }
+    }
+  });
+  return failures;
+};
+
+const stripVersionForCompare = (data: Record<string, unknown>) => {
+  const { version: _version, ...rest } = data;
+  return rest;
+};
+
+export const jsonValuesEqual = (left: unknown, right: unknown): boolean => {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return (
+      left.length === right.length &&
+      left.every((value, index) => jsonValuesEqual(value, right[index]))
+    );
+  }
+  if (isRecord(left) && isRecord(right)) {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every(
+        (key) => key in right && jsonValuesEqual(left[key], right[key])
+      )
+    );
+  }
+  return false;
+};
+
+// Shared batch item POST pipeline for user and group libraries, implementing
+// the official multi-object write contract: invalid entries fail per-index,
+// existing objects get PATCH-merge semantics, false-marker fields normalize
+// after the merge, unchanged uploads land in `unchanged` without a version
+// bump, and per-object failures don't abort the rest of the batch.
+export const handleItemBatchWrite = async (
+  c: Context<{ Bindings: Bindings }>,
+  input: {
+    libraryID: number;
+    libraryType: "group" | "user";
+    store: CompatibilityStore;
+  }
+) => {
+  const body = await c.req.json().catch(() => null);
+  const translationResponse = await handleWebTranslationWrite(c, {
+    body,
+    libraryID: input.libraryID,
+    libraryType: input.libraryType,
+    store: input.store,
+  });
+  if (translationResponse) {
+    return translationResponse;
+  }
+  if (!Array.isArray(body)) {
+    return c.text("Uploaded data must be a JSON array", 400);
+  }
+
+  const itemFailures: ItemWriteFailures = {};
+  const rawItems: Record<string, unknown>[] = (body as unknown[]).map(
+    (entry, index) => {
+      if (isRecord(entry)) {
+        return { ...(entry as Record<string, unknown>) };
+      }
+      itemFailures[index] = {
+        code: 400,
+        message: `Invalid value for index ${index} in uploaded data; expected JSON item object`,
+      };
+      return {};
+    }
+  );
+
+  const library =
+    input.libraryType === "user"
+      ? await input.store.listItems(input.libraryID)
+      : await input.store.listGroupItems(input.libraryID);
+  const existingVersions: ExistingObjectVersions = new Map(
+    library.items.map((item) => [
+      item.key,
+      { data: item.data ?? {}, version: item.version ?? 0 },
+    ])
+  );
+  const precondition = evaluateBatchWritePreconditions(
+    rawItems,
+    existingVersions,
+    library.version,
+    getIfUnmodifiedSinceVersion(c),
+    "Item"
+  );
+  if (precondition.libraryPreconditionFailed) {
+    return c.text("Library has been modified", 412, {
+      "Last-Modified-Version": `${library.version}`,
+    });
+  }
+  mergeItemWriteFailures(itemFailures, precondition.failed);
+
+  const finalItems: Record<string, unknown>[] = rawItems.map((object) => {
+    const key = typeof object.key === "string" ? object.key : "";
+    const current = key ? existingVersions.get(key) : undefined;
+    const merged = current
+      ? mergeItemUpdate(current.data, object, key, true)
+      : { ...object };
+    return normalizeItemParentForWrite(normalizeItemDeletedForWrite(merged));
+  });
+
+  mergeItemWriteFailures(itemFailures, normalizeItemBatchTagsForWrite(finalItems));
+  mergeItemWriteFailures(itemFailures, validateItemBatchNotesForWrite(finalItems));
+  mergeItemWriteFailures(
+    itemFailures,
+    validateItemBatchRelationsForWrite(finalItems)
+  );
+  mergeItemWriteFailures(
+    itemFailures,
+    validateItemBatchCreatorsForWrite(finalItems, true)
+  );
+  mergeItemWriteFailures(
+    itemFailures,
+    validateItemBatchAnnotationsForWrite(finalItems)
+  );
+  mergeItemWriteFailures(
+    itemFailures,
+    validateItemBatchFieldLengthsForWrite(finalItems)
+  );
+  const annotationParentResult =
+    await validateItemBatchAnnotationParentsForWrite(
+      input.store,
+      input.libraryType,
+      input.libraryID,
+      finalItems
+    );
+  mergeItemWriteFailures(itemFailures, annotationParentResult.failures);
+  await validateItemBatchParentsForWrite(
+    input.store,
+    input.libraryType,
+    input.libraryID,
+    finalItems,
+    itemFailures
+  );
+
+  const unchanged: Record<string, string> = { ...precondition.unchanged };
+  const toWrite: Array<{ index: number; object: Record<string, unknown> }> = [];
+  for (const entry of precondition.toWrite) {
+    if (entry.index in itemFailures) {
+      continue;
+    }
+    const final = finalItems[entry.index];
+    if (!final) {
+      continue;
+    }
+    const key = typeof final.key === "string" ? final.key : "";
+    const current = key ? existingVersions.get(key) : undefined;
+    if (
+      current &&
+      jsonValuesEqual(
+        stripVersionForCompare(final),
+        stripVersionForCompare(current.data)
+      )
+    ) {
+      unchanged[entry.index] = key;
+      continue;
+    }
+    toWrite.push({ index: entry.index, object: final });
+  }
+
+  const missingCollectionKeys = await createCollectionStore(
+    c.env
+  ).findMissingCollectionKeys(
+    input.libraryType,
+    input.libraryID,
+    toWrite.map((entry) => entry.object)
+  );
+  if (missingCollectionKeys.length) {
+    return collectionFailureResponse(c, missingCollectionKeys, library.version);
+  }
+
+  const writeToken = c.req.header("Zotero-Write-Token");
+  const result = toWrite.length
+    ? input.libraryType === "user"
+      ? await input.store.createItems(
+          input.libraryID,
+          toWrite.map((entry) => entry.object),
+          writeToken
+        )
+      : await input.store.createGroupItems(
+          input.libraryID,
+          toWrite.map((entry) => entry.object),
+          writeToken
+        )
+    : {
+        duplicateWriteToken: false,
+        success: [] as string[],
+        successful: [] as never[],
+        version: library.version,
+      };
+
+  if (result.duplicateWriteToken) {
+    return c.text("Write token has already been used", 412);
+  }
+
+  const relationVersion = await syncRelatedItemRelations(
+    { libraryID: input.libraryID, libraryType: input.libraryType, store: input.store },
+    result.successful
+  );
+  const version = relationVersion ?? result.version;
+
+  return c.json(
+    buildWriteReport(toWrite, result.successful, itemFailures, unchanged),
+    200,
+    {
+      "Last-Modified-Version": `${version}`,
+      ...(result.successful.length > 0
+        ? notificationHeaders(
+            topicUpdatedNotification(input.libraryType, input.libraryID, version)
+          )
+        : {}),
+    }
+  );
+};
+
 export type SingleObjectWriteVersionCheck =
   | { editable: Record<string, unknown>; ok: true }
   | {

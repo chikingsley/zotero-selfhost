@@ -1,4 +1,4 @@
-import { parseNumericID, requireGroup, requireGroupEdit, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
+import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createFullTextStore } from "../../fulltext";
 import { createCompatibilityStore } from "../../storage";
@@ -229,85 +229,9 @@ compatibility.post("/groups/:groupID/items", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const body = await c.req.json().catch(() => null);
-  const translationResponse = await handleWebTranslationWrite(c, {
-    body,
+  return handleItemBatchWrite(c, {
     libraryID: groupID,
     libraryType: "group",
     store,
   });
-  if (translationResponse) {
-    return translationResponse;
-  }
-  if (!Array.isArray(body)) {
-    return c.json({ error: "Expected an item array" }, 400);
-  }
-
-  const items = normalizeItemBatchDeletedForWrite(
-    body as Record<string, unknown>[]
-  );
-  const itemFailures: ItemWriteFailures = {};
-  mergeItemWriteFailures(itemFailures, normalizeItemBatchTagsForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchNotesForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchRelationsForWrite(items));
-  mergeItemWriteFailures(itemFailures, validateItemBatchCreatorsForWrite(items, true));
-  mergeItemWriteFailures(itemFailures, validateItemBatchAnnotationsForWrite(items));
-  const annotationParentResult = await validateItemBatchAnnotationParentsForWrite(
-    store,
-    "group",
-    groupID,
-    items
-  );
-  mergeItemWriteFailures(itemFailures, annotationParentResult.failures);
-  const parentVersion = await validateItemBatchParentsForWrite(
-    store,
-    "group",
-    groupID,
-    items,
-    itemFailures
-  );
-  if (Object.keys(itemFailures).length) {
-    return tagWriteFailureResponse(c, itemFailures, parentVersion);
-  }
-
-  const missingCollectionKeys =
-    await createCollectionStore(c.env).findMissingCollectionKeys(
-      "group",
-      groupID,
-      items
-    );
-  if (missingCollectionKeys.length) {
-    const library = await store.listGroupItems(groupID);
-    return collectionFailureResponse(c, missingCollectionKeys, library.version);
-  }
-
-  const result = await store.createGroupItems(
-    groupID,
-    items,
-    c.req.header("Zotero-Write-Token")
-  );
-
-  if (result.duplicateWriteToken) {
-    return c.text("Write token has already been used", 412);
-  }
-
-  const relationVersion = await syncRelatedItemRelations(
-    { libraryID: groupID, libraryType: "group", store },
-    result.successful
-  );
-  const version = relationVersion ?? result.version;
-
-  return c.json(
-    {
-      success: result.success,
-      successful: result.successful,
-    },
-    200,
-    {
-      "Last-Modified-Version": `${version}`,
-      ...(result.successful.length > 0
-        ? notificationHeaders(topicUpdatedNotification("group", groupID, version))
-        : {}),
-    }
-  );
 });

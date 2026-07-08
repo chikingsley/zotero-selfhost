@@ -1,5 +1,5 @@
 import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, requireGroupAdmin, getIfUnmodifiedSinceVersion, settingHeaders, renderSettingsList, getSinceVersion, getRequestedSettingKeys, isSettingsObject, parseSettingsBody, renderSettingsWriteFailure, ensureSingleSettingPrecondition } from "./shared";
-import { createSettingsStore, isAdminOnlySettingKey, type SettingPayload } from "../../settings";
+import { createSettingsStore, isAdminOnlySettingKey, type SettingFailure, type SettingPayload } from "../../settings";
 import { createCompatibilityStore } from "../../storage";
 import { compatibility } from "./router";
 
@@ -156,6 +156,11 @@ compatibility.post("/groups/:groupID/settings", async (c) => {
     return c.text("Precondition failed", 412);
   }
   if (Object.keys(result.failed).length > 0) {
+    const firstFailure = Object.values(result.failed)[0];
+    if (!settingsFailuresUseWriteReport(result.failed) && firstFailure) {
+      return renderSettingsWriteFailure(c, firstFailure);
+    }
+
     return c.json(
       { failed: result.failed, successful: result.successful, unchanged: result.unchanged },
       200,
@@ -342,6 +347,11 @@ compatibility.post("/users/:userID/settings", async (c) => {
     return c.text("Precondition failed", 412);
   }
   if (Object.keys(result.failed).length > 0) {
+    const firstFailure = Object.values(result.failed)[0];
+    if (!settingsFailuresUseWriteReport(result.failed) && firstFailure) {
+      return renderSettingsWriteFailure(c, firstFailure);
+    }
+
     return c.json(
       { failed: result.failed, successful: result.successful, unchanged: result.unchanged },
       200,
@@ -351,6 +361,12 @@ compatibility.post("/users/:userID/settings", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
+
+
+const settingsFailuresUseWriteReport = (
+  failed: Record<string, SettingFailure>
+): boolean =>
+  Object.values(failed).every((failure) => failure.code === 403);
 
 
 compatibility.delete("/users/:userID/settings", async (c) => {
