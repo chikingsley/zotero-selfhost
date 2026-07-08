@@ -1,34 +1,47 @@
 # Zotero Self-Host
 
-Research and prototype workspace for a full Zotero-compatible self-hosted server.
+A modern, self-hostable server compatible with the Zotero API (v3), built
+against Zotero's own test suite as the compatibility oracle.
 
-The plan is not to guess Zotero behavior. The plan is:
+The method is not to guess Zotero behavior:
 
-1. Run the official Zotero `dataserver` locally as the reference stack.
-2. Use Zotero's own remote API tests as the compatibility oracle.
-3. Build a smaller modern compatible server against that oracle.
-4. Test real clients only after the server contract is understood.
+1. Use Zotero's official remote API tests as the acceptance oracle.
+2. Build a smaller modern server (TypeScript / Bun / Hono) against that oracle.
+3. Test real clients once the contract demonstrably holds.
 
-## Current Tracks
+## Status
 
-- Reference stack: official `zotero/dataserver` plus required services.
-- Compatibility map: phased subset of official API tests.
-- Compatible server: future implementation, likely single-user first.
-- Companion/WebUI: useful side path for PDF access, but not the full sync server.
+Most core API slices pass the official test suite fully — see
+[compatibility/candidate-status.md](compatibility/candidate-status.md) for the
+live scoreboard and
+[compatibility/known-differences.md](compatibility/known-differences.md) for
+deliberate deviations.
+
+```bash
+# run it (in-memory mode)
+cd server && bun install && bun scripts/serve.ts
+
+# score it against Zotero's own tests
+bun compatibility/run-zotero-tests.ts --target candidate -- -v 3 version
+```
+
+"Zotero" is a registered trademark of the Corporation for Digital
+Scholarship; this project is an independent, compatible implementation and is
+not affiliated with or endorsed by them.
 
 ## Key Docs
 
+- [Compatibility status](compatibility/candidate-status.md)
+- [Known differences](compatibility/known-differences.md)
+- [Compatibility plan](compatibility/README.md)
 - [Full server plan](docs/full-server-plan.md)
 - [Understanding doc](docs/zotero-selfhost-understanding.md)
-- [Compatibility plan](compatibility/README.md)
-- [References](references/README.md)
 - [Candidate server](server/README.md)
 - [Active TODO](TODO.md)
 
-## Local Source Inputs
+## Local Source Inputs (gitignored clones)
 
-- `references/dataserver/`: official Zotero Data Server.
-- `references/zotero-selfhost/`: older full-stack Docker/package attempt.
-- `references/zotprime/`: older on-prem package attempt.
+- `references/dataserver/`: official Zotero Data Server (AGPL; the test oracle).
+- `references/zotero-selfhost/`, `references/zotprime/`: older packaging attempts.
 - `references/on-prem-zotero-webui/`: WebDAV PDF proxy plus web-library overlay.
 - `references/sources.md`: collected external source links.
