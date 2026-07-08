@@ -1,4 +1,4 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, renderItemList, filterItemsForRequest, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "./shared";
+import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, renderItemList, filterItemsForRequest, resolveTopLevelItems, renderTagList, getURLSearchParams, deleteTagsForLibrary } from "./shared";
 import { createCollectionStore } from "../../collections";
 import { createCompatibilityStore } from "../../storage";
 import { filterTopItems, listTagsForRequest } from "../../tags";
@@ -257,13 +257,68 @@ compatibility.get("/groups/:groupID/items/top", async (c) => {
   }
 
   const result = await store.listGroupItems(groupID);
+  const visible = result.items.filter((item) => !item.data?.deleted);
+  const matched = await filterItemsForRequest(
+    c,
+    "group",
+    groupID,
+    visible,
+    result.items,
+    true
+  );
+
+  return renderItemList(
+    c,
+    resolveTopLevelItems(matched, visible),
+    result.version
+  );
+});
+
+
+compatibility.get("/groups/:groupID/items/trash", async (c) => {
+  const groupID = parseNumericID(c.req.param("groupID"));
+  if (groupID === null) {
+    return c.text("Invalid groupID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  if (!(await requireGroup(c, store, groupID))) {
+    return c.text("Invalid key", 403);
+  }
+
+  const result = await store.listGroupItems(groupID);
+  const trashed = result.items.filter((item) => Boolean(item.data?.deleted));
   const items = await filterItemsForRequest(
     c,
     "group",
     groupID,
-    filterTopItems(result.items),
-    result.items,
-    true
+    trashed,
+    result.items
+  );
+
+  return renderItemList(c, items, result.version);
+});
+
+
+compatibility.get("/users/:userID/items/trash", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  if (!(await requireUser(c, store, userID))) {
+    return c.text("Invalid key", 403);
+  }
+
+  const result = await store.listItems(userID);
+  const trashed = result.items.filter((item) => Boolean(item.data?.deleted));
+  const items = await filterItemsForRequest(
+    c,
+    "user",
+    userID,
+    trashed,
+    result.items
   );
 
   return renderItemList(c, items, result.version);
@@ -282,14 +337,19 @@ compatibility.get("/users/:userID/items/top", async (c) => {
   }
 
   const result = await store.listItems(userID);
-  const items = await filterItemsForRequest(
+  const visible = result.items.filter((item) => !item.data?.deleted);
+  const matched = await filterItemsForRequest(
     c,
     "user",
     userID,
-    filterTopItems(result.items),
+    visible,
     result.items,
     true
   );
 
-  return renderItemList(c, items, result.version);
+  return renderItemList(
+    c,
+    resolveTopLevelItems(matched, visible),
+    result.version
+  );
 });

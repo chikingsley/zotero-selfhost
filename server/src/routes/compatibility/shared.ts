@@ -1774,6 +1774,66 @@ export const validateItemNoteFieldForWrite = (
   return null;
 };
 
+// /top semantics: a query may match any descendant; the response contains
+// the matching items' top-level ancestors.
+export const resolveTopLevelItems = <
+  T extends { data?: Record<string, unknown>; key: string },
+>(
+  matched: T[],
+  allItems: T[]
+): T[] => {
+  const byKey = new Map(allItems.map((item) => [item.key, item]));
+  const out: T[] = [];
+  const seen = new Set<string>();
+  for (const item of matched) {
+    let current = item;
+    let guard = 0;
+    while (
+      typeof current.data?.parentItem === "string" &&
+      byKey.has(current.data.parentItem) &&
+      guard < 50
+    ) {
+      current = byKey.get(current.data.parentItem) as T;
+      guard += 1;
+    }
+    if (!seen.has(current.key) && !current.data?.deleted) {
+      seen.add(current.key);
+      out.push(current);
+    }
+  }
+  return out;
+};
+
+export const normalizeItemLastReadForWrite = (
+  data: Record<string, unknown>,
+  libraryType: "group" | "user"
+): { code: number; message: string } | null => {
+  if (!("lastRead" in data)) {
+    return null;
+  }
+  const value = data.lastRead;
+  if (value === "" || value === null || value === false) {
+    delete data.lastRead;
+    return null;
+  }
+  if (libraryType === "group") {
+    return {
+      code: 400,
+      message: "'lastRead' is valid only in user libraries",
+    };
+  }
+  if (data.itemType !== "attachment") {
+    return {
+      code: 400,
+      message: "'lastRead' is valid only for attachment items",
+    };
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return { code: 400, message: "'lastRead' must be an integer" };
+  }
+  return null;
+};
+
 // Official attachment write rules: linkMode required and valid, storage
 // properties only on imported/embedded linkModes, linked files only in user
 // libraries, and embedded images locked to an image type under their parent.
@@ -2085,6 +2145,13 @@ export const handleItemBatchWrite = async (
       normalizeItemDeletedForWrite(merged)
     );
     fillItemTemplateFields(normalized, !current);
+    const lastReadFailure = normalizeItemLastReadForWrite(
+      normalized,
+      input.libraryType
+    );
+    if (lastReadFailure && !(index in itemFailures)) {
+      itemFailures[index] = lastReadFailure;
+    }
     const noteFieldFailure = validateItemNoteFieldForWrite(normalized);
     if (noteFieldFailure && !(index in itemFailures)) {
       itemFailures[index] = noteFieldFailure;
@@ -3033,6 +3100,13 @@ export const updateItemInLibrary = async (
     delete data.parentItem;
   }
   fillItemTemplateFields(data, !existing);
+  const lastReadFailure = normalizeItemLastReadForWrite(
+    data,
+    input.libraryType
+  );
+  if (lastReadFailure) {
+    return c.text(lastReadFailure.message, 400);
+  }
   const noteFieldFailure = validateItemNoteFieldForWrite(data);
   if (noteFieldFailure) {
     return c.text(noteFieldFailure.message, 400);

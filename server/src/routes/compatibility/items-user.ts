@@ -222,7 +222,9 @@ compatibility.get("/users/:userID/items", async (c) => {
 
   const itemKeys = c.req.query("itemKey")?.split(",");
   const result = await store.listItems(userID, itemKeys);
-  const items = await filterItemsForRequest(c, "user", userID, result.items);
+  // Trashed items only appear under /items/trash.
+  const visible = result.items.filter((item) => !item.data?.deleted);
+  const items = await filterItemsForRequest(c, "user", userID, visible);
 
   return renderItemList(c, items, result.version);
 });

@@ -227,7 +227,9 @@ compatibility.get("/groups/:groupID/items", async (c) => {
 
   const itemKeys = c.req.query("itemKey")?.split(",");
   const result = await store.listGroupItems(groupID, itemKeys);
-  const items = await filterItemsForRequest(c, "group", groupID, result.items);
+  // Trashed items only appear under /items/trash.
+  const visible = result.items.filter((item) => !item.data?.deleted);
+  const items = await filterItemsForRequest(c, "group", groupID, visible);
 
   return renderItemList(c, items, result.version);
 });
