@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zotero-compatible-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "base_dir": ".",
+  "find_additional_modules": true,
+  "preserve_file_names": true,
+  "rules": [
+    {
+      "type": "CompiledWasm",
+      "globs": [
+        "node_modules/bsdiff-wasm/dist/*.wasm",
+        "node_modules/xdelta3-wasm/dist/*.wasm"
+      ],
+      "fallthrough": true
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zotero-compatible-server",
+      "database_id": "local-placeholder"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "zotero-compatible-attachments"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+# local secrets
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+!.env.example
+!.env.*.example
+!.dev.vars.example
+
+# dependencies
+node_modules
+
+# build output
+dist
+out
+coverage
+
+# caches/logs
+.cache
+*.tsbuildinfo
+*.log
+
+# macOS
+.DS_Store
+
+# upstream reference clones — third-party AGPL code, re-clone per references/sources.md
+references/dataserver/
+references/zotero-selfhost/
+references/zotprime/
+references/on-prem-zotero-webui/

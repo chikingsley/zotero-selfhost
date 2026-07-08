@@ -1,0 +1,8 @@
+{
+  "apiURLPrefix": "http://127.0.0.1:8787/",
+  "rootPassword": "local-root-password",
+  "rootUsername": "root",
+  "userID": 1,
+  "userID2": 2,
+  "verbose": 0
+}

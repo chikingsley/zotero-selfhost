@@ -1,0 +1,35 @@
+{
+  "name": "zotero-compatible-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "module": "src/index.ts",
+  "scripts": {
+    "dev": "bun scripts/with-env.ts wrangler dev",
+    "deploy": "bun scripts/with-env.ts wrangler deploy",
+    "cf:whoami": "bun scripts/with-env.ts wrangler whoami",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "ultracite check && tsc --noEmit && vitest run",
+    "fix": "ultracite fix"
+  },
+  "dependencies": {
+    "@hono/zod-openapi": "^1.4.0",
+    "bsdiff-wasm": "^0.1.4",
+    "hono": "^4.12.28",
+    "xdelta3-wasm": "^1.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.2",
+    "@cloudflare/workers-types": "^5.20260706.1",
+    "@types/bun": "latest",
+    "ultracite": "7.9.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.107.0"
+  },
+  "peerDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

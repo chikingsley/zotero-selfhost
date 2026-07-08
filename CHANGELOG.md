@@ -1,0 +1,94 @@
+
+## Unreleased
+
+- Added object API create-by-PUT compatibility for user/group items, collections, and saved searches.
+- Added object trash-state normalization for item, collection, and saved-search writes.
+- Documented object API compatibility status in docs/object-compatibility.md.
+- Documented repo tooling defaults for Bun, Wrangler, Hono, Zod, Ultracite, and Biome.
+- Added group metadata read/update/search compatibility, metadata-version tracking, top-level Atom group JSON, and D1 persistence for group description/url/image metadata.
+- Documented group compatibility status in docs/group-compatibility.md.
+- Added API-key permission enforcement for core user/group route guards, user note-list filtering, user-library mutation writes, and anonymous/keyed user group listing.
+- Documented permission compatibility status in docs/permission-compatibility.md.
+- Added `If-Modified-Since-Version` 304 handling for item, collection, tag, search, and settings list endpoints.
+- Documented version compatibility status in docs/version-compatibility.md.
+- Added Zotero API/schema response headers and schema-aware item field visibility for `lastRead`, Android clients, and legacy original-publication fields.
+- Documented schema compatibility status in docs/schema-compatibility.md.
+- Added item creator-summary metadata for JSON and Atom responses.
+- Added schema 41 item-type/creator-type mappings and Zotero-style creator write validation for item POST/PUT/PATCH.
+- Documented creator compatibility status in docs/creator-compatibility.md.
+- Added annotation write normalization, validation, text truncation, default color handling, immutable type checks, and old-schema invalidProp markers.
+- Added annotation parent validation requiring existing PDF, EPUB, or HTML attachment parents for user and group item writes.
+- Documented annotation compatibility status in docs/annotation-compatibility.md.
+- Added item Atom selection for `format=atom` and Atom `Accept` headers, feed self links, multi-content `content=bib,json`, and item-list HEAD headers.
+- Documented Atom compatibility status in docs/atom-compatibility.md.
+- Documented storage-admin compatibility status in docs/storage-admin-compatibility.md.
+- Added local TTS compatibility routes with deterministic voice metadata, credit responses, speak redirects, and placeholder WAV audio.
+- Documented TTS compatibility status in docs/tts-compatibility.md.
+- Added item Atom `content=csljson` and `content=json` support for cache/helper compatibility.
+- Documented general and cache compatibility status in docs/general-cache-compatibility.md.
+- Added shared query pagination, next-link headers, sorting, and expanded quick-search behavior for common list endpoints.
+- Documented query parameter compatibility status in docs/query-parameter-compatibility.md.
+- Added Worker-native item export, bibliography/citation include/content rendering, and local web-translation compatibility shims.
+- Documented export, bibliography, and translation compatibility status in docs/export-translation-compatibility.md.
+- Added local Zotero debug notification headers for item mutations, key group-access changes, group lifecycle changes, and group member changes.
+- Documented notification compatibility status in docs/notification-compatibility.md.
+- Added local D1 and memory `/keys/sessions` browser login-session create, poll, cancel, info, and complete flow.
+- Added D1 and memory API key metadata handling plus Zotero-compatible key info, create, update, and delete routes.
+- Documented API key compatibility status in docs/key-compatibility.md.
+- Added D1 and memory full-text content storage, full-text sync routes, and direct full-text query integration.
+- Documented full-text compatibility status in docs/fulltext-compatibility.md.
+- Added item and collection relation validation plus same-library reverse item relation synchronization.
+- Documented relation compatibility status in docs/relation-compatibility.md.
+- Added note-size validation and user/group item children routes.
+- Added Zotero-style note title extraction for item Atom titles and title sorting without mutating note HTML.
+- Documented note and child-item compatibility status in docs/note-compatibility.md.
+- Added mapping metadata routes and stricter Zotero-compatible item templates for attachments, annotations, and computerProgram fields.
+- Documented mapping compatibility status in docs/mapping-compatibility.md.
+- Added minimal Atom XML and HEAD response support for saved-search and tag compatibility routes.
+- Added no-log cleanup of lastPageIndex settings when attachment/item keys are deleted.
+- Added deleted-sync logging for tag delete operations.
+- Added Zotero-compatible deleted-sync routes, item DELETE routes, D1 sync_log deleted reads, and memory delete-log recording.
+- Documented deleted-sync compatibility status in docs/deleted-compatibility.md.
+- Added Zotero-compatible saved-search persistence, CRUD routes, write reports, keys/versions formats, validation, and legacy schema invalidProp handling.
+- Documented saved-search compatibility status in docs/search-compatibility.md.
+
+- Added Zotero-compatible tag listing, filtering, validation, scoped tag routes, and delete-tag mutation behavior.
+- Documented tag compatibility status in docs/tag-compatibility.md.
+- Added Zotero-compatible settings storage and routes for user and group libraries.
+- Added D1 settings schema, shared library-version integration, setting validation, large integer preservation, and group admin-only settings guards.
+- Documented settings compatibility status in docs/settings-compatibility.md.
+# Changelog
+
+## Unreleased
+
+- Added repo planning docs for the full Zotero-compatible server path.
+- Added compatibility and references structure.
+- Moved raw upstream/reference inputs under `references/`.
+- Reserved `server/` for the new compatible server implementation.
+- Scaffolded `server/` as a Bun Cloudflare Worker package with Hono/OpenAPIHono, Zod, Wrangler, Vitest, Ultracite, and Biome.
+- Added initial `/health` and `/openapi.json` Worker routes plus smoke tests.
+- Added a compatibility runner for Zotero's official remote API tests.
+- Added initial v3 test classification in `compatibility/mvp-test-map.md`.
+- Added explicit user/group partial-upload `PATCH` route guards and Worker-side
+  `bsdiff` patch application.
+- Added Worker-side `xdelta` and `vcdiff` partial-upload patch application via
+  `xdelta3-wasm`.
+- Added Wrangler `CompiledWasm` module rules and switched xdelta patching to a
+  Worker-native static `.wasm` import path.
+- Added a concrete official `dataserver` reference-stack runbook covering
+  required services, PHP config, MySQL reset order, object storage, and remote
+  test config.
+- Added base user/group collection create, list, and get compatibility routes
+  backed by D1 or in-memory local state.
+- Fixed D1 collection parent validation to use async collection existence checks.
+- Added missing collection-key validation for item creation and user/group
+  collection item-list routes.
+- Derived collection `meta.numItems` from item JSON membership for memory and D1
+  stores.
+- Added user/group collection deletion with recursive descendant handling.
+- Added user/group item `PATCH` and `PUT` routes for collection membership
+  updates, including missing collection validation and child-item assignment
+  rejection.
+- Added `If-Unmodified-Since-Version` checks for recursive collection deletion.
+- Added collection move cycle-breaking when a collection is moved under one of
+  its descendants.
