@@ -1,11 +1,4 @@
-import { clearMemoryCollections } from "../../../domain/collections";
-import { clearMemoryDeleted } from "../../../domain/deleted";
-import {
-  clearMemoryFullTextIndexStates,
-  createFullTextStore,
-} from "../../../domain/fulltext";
-import { clearMemorySearches } from "../../../domain/searches";
-import { clearMemorySettings } from "../../../domain/settings";
+import { createFullTextStore } from "../../../domain/fulltext";
 import { createCompatibilityStore } from "../../../domain/storage";
 import { registerUserIdentity } from "../../../domain/user-identity";
 import { generateZoteroKey } from "../../../domain/zotero";
@@ -28,11 +21,6 @@ compatibility.post("/test/setup", async (c) => {
     c.env.SELFHOST_TEST_API_KEY || generateZoteroKey().toLowerCase();
   const user2Key = generateZoteroKey().toLowerCase();
   const store = createCompatibilityStore(c.env);
-  clearMemoryCollections();
-  clearMemoryDeleted();
-  clearMemoryFullTextIndexStates();
-  clearMemorySearches();
-  clearMemorySettings();
 
   return c.json(
     await store.setupTestUsers(userID, userID2, user1Key, user2Key)

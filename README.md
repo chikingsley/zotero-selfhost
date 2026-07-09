@@ -78,7 +78,7 @@ to Zotero's own source code or trademarks.
 
 ## Maintenance References
 
-Third-party reference repositories are not committed. When you need to refresh
-compatibility against Zotero's official test oracle, clone
-`zotero/dataserver` locally under the ignored `references/dataserver/` path.
-See [compatibility/README.md](compatibility/README.md).
+Third-party reference repositories are not committed. The tracked oracle lock
+pins Zotero's exact `dataserver` commit and schema digest; `cd server && bun run
+compat:setup` materializes the ignored checkout reproducibly. See
+[compatibility/README.md](compatibility/README.md).

@@ -1,4 +1,5 @@
-import { loadBspatch } from "bsdiff-wasm";
+import loadBspatch from "bsdiff-wasm/bspatch";
+import bspatchWasm from "bsdiff-wasm/bspatch.wasm";
 import xdelta3Wasm from "xdelta3-wasm/dist/df58e7ef369c5c18.wasm";
 
 export class PatchAlgorithmUnavailableError extends Error {
@@ -44,6 +45,7 @@ const applyBsdiffPatch = async (
   patch: ArrayBuffer
 ): Promise<ArrayBuffer> => {
   const bspatch = await loadBspatch({
+    instantiateWasm: instantiateBspatchWasm,
     print: () => undefined,
     printErr: () => undefined,
   });
@@ -71,6 +73,15 @@ const applyBsdiffPatch = async (
     unlinkIfExists(bspatch, `${workdir}/new`);
     rmdirIfExists(bspatch, workdir);
   }
+};
+
+const instantiateBspatchWasm = async (
+  imports: WebAssembly.Imports,
+  receiveInstance: (result: { instance: WebAssembly.Instance }) => void
+): Promise<WebAssembly.Exports> => {
+  const instance = await WebAssembly.instantiate(bspatchWasm, imports);
+  receiveInstance({ instance });
+  return instance.exports;
 };
 
 const maxXdeltaOutputBytes = 512 * 1024 * 1024;

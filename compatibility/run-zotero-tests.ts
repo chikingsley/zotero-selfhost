@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 interface RunnerArgs {
@@ -13,8 +13,71 @@ interface RunnerConfig extends Record<string, unknown> {
   s3Bucket?: string;
 }
 
+interface OracleLock {
+  commit: string;
+  repository: string;
+  schema: { sha256: string };
+}
+
 const repoRoot = resolve(import.meta.dir, "..");
 const remoteTestsDir = join(repoRoot, "references/dataserver/tests/remote");
+const oracleLockPath = join(repoRoot, "compatibility/oracle.lock.json");
+const schemaPath = join(
+  repoRoot,
+  "references/dataserver/htdocs/zotero-schema/schema.json"
+);
+
+const assertOracleReady = () => {
+  if (!existsSync(join(remoteTestsDir, "run_tests"))) {
+    throw new Error(
+      "The pinned Zotero oracle is not installed. Run `cd server && bun run compat:setup`."
+    );
+  }
+
+  const lock = JSON.parse(readFileSync(oracleLockPath, "utf8")) as OracleLock;
+  const git = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+    cwd: resolve(remoteTestsDir, "../.."),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const checkoutCommit = new TextDecoder().decode(git.stdout).trim();
+  if (git.exitCode !== 0 || checkoutCommit !== lock.commit) {
+    throw new Error(
+      `Zotero oracle checkout mismatch: expected ${lock.commit}, found ${checkoutCommit || "unreadable"}. Run \`cd server && bun run compat:setup\`.`
+    );
+  }
+
+  const origin = Bun.spawnSync(["git", "remote", "get-url", "origin"], {
+    cwd: resolve(remoteTestsDir, "../.."),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const checkoutOrigin = new TextDecoder().decode(origin.stdout).trim();
+  if (origin.exitCode !== 0 || checkoutOrigin !== lock.repository) {
+    throw new Error(
+      `Zotero oracle origin mismatch: expected ${lock.repository}, found ${checkoutOrigin || "unreadable"}. Run \`cd server && bun run compat:setup\`.`
+    );
+  }
+
+  if (!existsSync(join(remoteTestsDir, "node_modules"))) {
+    throw new Error(
+      "Zotero oracle dependencies are missing. Run `cd server && bun run compat:setup`."
+    );
+  }
+  if (!existsSync(schemaPath)) {
+    throw new Error(
+      "The pinned Zotero schema is missing. Run `cd server && bun run compat:setup`."
+    );
+  }
+  const schemaDigest = createHash("sha256")
+    .update(readFileSync(schemaPath))
+    .digest("hex");
+  if (schemaDigest !== lock.schema.sha256) {
+    throw new Error(
+      `Zotero schema mismatch: expected ${lock.schema.sha256}, found ${schemaDigest}. Run \`cd server && bun run compat:setup\`.`
+    );
+  }
+};
 
 const parseArgs = (args: string[]): RunnerArgs => {
   let target = "candidate";
@@ -44,10 +107,10 @@ const parseArgs = (args: string[]): RunnerArgs => {
     passthrough.push(arg);
   }
 
-  if (!configPath) {
-    configPath = join(repoRoot, `compatibility/config/${target}.local.json`);
-  } else {
+  if (configPath) {
     configPath = resolve(configPath);
+  } else {
+    configPath = join(repoRoot, `compatibility/config/${target}.local.json`);
   }
 
   return { configPath, passthrough, target };
@@ -56,7 +119,7 @@ const parseArgs = (args: string[]): RunnerArgs => {
 const loadConfig = (configPath: string): RunnerConfig => {
   if (!existsSync(configPath)) {
     throw new Error(
-      `Missing config file: ${configPath}\nCreate it from compatibility/config/${configPath.includes("reference") ? "reference" : "candidate"}.example.json`,
+      `Missing config file: ${configPath}\nCreate it from compatibility/config/${configPath.includes("reference") ? "reference" : "candidate"}.example.json`
     );
   }
 
@@ -65,7 +128,7 @@ const loadConfig = (configPath: string): RunnerConfig => {
 
 const withCloudflareR2Env = async (
   config: RunnerConfig,
-  env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv
 ): Promise<NodeJS.ProcessEnv> => {
   if (!config.cloudflareR2FromApiToken) {
     return env;
@@ -76,20 +139,21 @@ const withCloudflareR2Env = async (
 
   if (!(token && accountId)) {
     throw new Error(
-      "cloudflareR2FromApiToken requires CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID",
+      "cloudflareR2FromApiToken requires CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID"
     );
   }
 
-  const tokenId = env.CLOUDFLARE_API_TOKEN_ID ?? (await getCloudflareTokenId(token));
+  const tokenId =
+    env.CLOUDFLARE_API_TOKEN_ID ?? (await getCloudflareTokenId(token));
   const secretAccessKey = createHash("sha256").update(token).digest("hex");
 
   return {
     ...env,
     AWS_ACCESS_KEY_ID: env.AWS_ACCESS_KEY_ID ?? tokenId,
-    AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY ?? secretAccessKey,
     AWS_ENDPOINT_URL:
       env.AWS_ENDPOINT_URL ?? `https://${accountId}.r2.cloudflarestorage.com`,
     AWS_REGION: env.AWS_REGION ?? "auto",
+    AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY ?? secretAccessKey,
   };
 };
 
@@ -98,7 +162,7 @@ const getCloudflareTokenId = async (token: string): Promise<string> => {
     "https://api.cloudflare.com/client/v4/user/tokens/verify",
     {
       headers: { Authorization: `Bearer ${token}` },
-    },
+    }
   );
 
   const body = (await response.json()) as {
@@ -109,7 +173,7 @@ const getCloudflareTokenId = async (token: string): Promise<string> => {
 
   if (!(response.ok && body.success && body.result?.id)) {
     throw new Error(
-      `Unable to verify Cloudflare token for R2 S3 credentials: ${JSON.stringify(body.errors ?? [])}`,
+      `Unable to verify Cloudflare token for R2 S3 credentials: ${JSON.stringify(body.errors ?? [])}`
     );
   }
 
@@ -117,6 +181,7 @@ const getCloudflareTokenId = async (token: string): Promise<string> => {
 };
 
 const main = async () => {
+  assertOracleReady();
   const { configPath, passthrough, target } = parseArgs(Bun.argv.slice(2));
   const config = loadConfig(configPath);
   const nodeConfig = JSON.stringify(config);

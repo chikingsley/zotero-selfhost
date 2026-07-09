@@ -6,21 +6,28 @@
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
-    "dev": "wrangler dev",
-    "dev:memory": "bun scripts/serve.ts",
+    "dev": "bun run db:migrations:apply:local && wrangler dev",
     "deploy": "bun run db:migrations:apply && wrangler deploy",
     "deploy:worker": "wrangler deploy",
     "deploy:dry-run": "wrangler deploy --dry-run",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "db:migrations:apply:local": "CI=1 wrangler d1 migrations apply DB --local",
     "db:migrations:list": "wrangler d1 migrations list DB --remote",
     "cf:types": "wrangler types",
     "cf:types:check": "wrangler types --check",
     "cf:whoami": "wrangler whoami",
+    "compat:setup": "bun ../compatibility/oracle.ts setup",
+    "compat:status": "bun ../compatibility/oracle.ts status",
+    "compat:update": "bun ../compatibility/oracle.ts update",
     "smoke:desktop": "bun scripts/desktop-smoke.ts",
     "typecheck": "bun run cf:types && tsc --noEmit",
-    "test": "vitest run",
+    "typecheck:compat": "tsc --ignoreConfig --noEmit --strict --target ESNext --module Preserve --moduleResolution bundler --types bun,node ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts",
+    "test": "bun run test:runtime",
+    "test:runtime": "vitest run",
+    "test:oracle:smoke": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 general,version",
+    "test:oracle": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 -t 240000",
     "test:watch": "vitest",
-    "check": "ultracite check && bun run typecheck && vitest run",
+    "check": "ultracite check && biome check --config-path biome.jsonc ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts && bun run typecheck && bun run typecheck:compat && bun run test:runtime",
     "fix": "ultracite fix"
   },
   "dependencies": {
@@ -32,6 +39,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
     "@types/bun": "latest",
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
@@ -63,5 +71,8 @@
         "description": "Optional key for exercising the TTS compatibility stub. Leave blank unless you intentionally run the TTS tests."
       }
     }
+  },
+  "patchedDependencies": {
+    "bsdiff-wasm@0.1.4": "patches/bsdiff-wasm@0.1.4.patch"
   }
 }

@@ -1,22 +1,14 @@
 import type { Context } from "hono";
 import type { Bindings } from "../../../bindings";
 import { getRequestApiKey } from "../../../domain/auth";
-import { clearMemoryCollections } from "../../../domain/collections";
-import { clearMemoryDeleted } from "../../../domain/deleted";
 import { createFullTextStore } from "../../../domain/fulltext";
 import { createKeyStore, keyAllowsGroupPermission } from "../../../domain/keys";
 import {
   notificationHeaders,
   topicDeletedNotification,
 } from "../../../domain/notifications";
-import {
-  clearMemorySearches,
-  createSearchStore,
-} from "../../../domain/searches";
-import {
-  clearMemorySettings,
-  createSettingsStore,
-} from "../../../domain/settings";
+import { createSearchStore } from "../../../domain/searches";
+import { createSettingsStore } from "../../../domain/settings";
 import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
 import {
@@ -480,10 +472,6 @@ compatibility.post("/groups/:groupID/clear", async (c) => {
   await createFullTextStore(c.env).clearFullText("group", groupID);
   await createSearchStore(c.env).clearSearches("group", groupID);
   await createSettingsStore(c.env).clearSettings("group", groupID);
-  clearMemoryCollections("group", groupID);
-  clearMemoryDeleted("group", groupID);
-  clearMemorySearches("group", groupID);
-  clearMemorySettings("group", groupID);
   return c.body(null, 204);
 });
 
@@ -502,9 +490,5 @@ compatibility.post("/users/:userID/clear", async (c) => {
   await createFullTextStore(c.env).clearFullText("user", userID);
   await createSearchStore(c.env).clearSearches("user", userID);
   await createSettingsStore(c.env).clearSettings("user", userID);
-  clearMemoryCollections("user", userID);
-  clearMemoryDeleted("user", userID);
-  clearMemorySearches("user", userID);
-  clearMemorySettings("user", userID);
   return c.body(null, 204);
 });

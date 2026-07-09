@@ -1,5 +1,4 @@
 import type { Bindings } from "../bindings";
-import { getLibrary } from "./state";
 
 type LibraryType = "group" | "user";
 
@@ -93,181 +92,7 @@ interface FullTextStore {
 }
 
 export const createFullTextStore = (env: Bindings): FullTextStore =>
-  env.DB ? new D1FullTextStore(env.DB) : memoryFullTextStore;
-
-const memoryFullText = new Map<string, Map<string, FullTextRecord>>();
-const memoryFullTextIndexStates = new Map<string, FullTextIndexState>();
-
-export const clearMemoryFullTextIndexStates = () => {
-  memoryFullTextIndexStates.clear();
-};
-
-const memoryFullTextStore: FullTextStore = {
-  async clearFullText(libraryType, libraryID) {
-    memoryFullText.delete(getMemoryFullTextKey(libraryType, libraryID));
-  },
-
-  async getContent(libraryType, libraryID, itemKey) {
-    return getMemoryFullText(libraryType, libraryID).get(itemKey) ?? null;
-  },
-
-  async getContentMap(libraryType, libraryID) {
-    return new Map(
-      [...getMemoryFullText(libraryType, libraryID).entries()].map(
-        ([itemKey, record]) => [itemKey, record.content]
-      )
-    );
-  },
-
-  async getIndexState(libraryType, libraryID) {
-    return getMemoryFullTextIndexState(libraryType, libraryID);
-  },
-
-  async getIndexStatus(libraryType, libraryID) {
-    const state = getMemoryFullTextIndexState(libraryType, libraryID);
-    if (state.reindexing !== null) {
-      return {
-        expectedCount: getMemoryFullText(libraryType, libraryID).size,
-        indexedCount: 0,
-        status: "reindexing",
-      };
-    }
-    if (state.deindexed) {
-      return { status: "deindexed" };
-    }
-    return { status: "indexed" };
-  },
-
-  async listVersions(libraryType, libraryID, sinceVersion = null) {
-    const library = getMemoryLibrary(libraryType, libraryID);
-    const versions = Object.fromEntries(
-      [...getMemoryFullText(libraryType, libraryID).entries()]
-        .filter(
-          ([, record]) => sinceVersion === null || record.version > sinceVersion
-        )
-        .map(([itemKey, record]) => [itemKey, record.version])
-    );
-
-    return {
-      version: library.version,
-      versions,
-    };
-  },
-
-  async markReindexingForSearch(libraryType, libraryID) {
-    const state = getMemoryFullTextIndexState(libraryType, libraryID);
-    const now = getUnixSeconds();
-    if (state.deindexed || isStaleReindexing(state.reindexing, now)) {
-      await this.setIndexState(libraryType, libraryID, {
-        deindexed: false,
-        reindexing: now,
-      });
-      return true;
-    }
-    return state.reindexing !== null;
-  },
-
-  async setIndexState(libraryType, libraryID, patch) {
-    const current = getMemoryFullTextIndexState(libraryType, libraryID);
-    const next = {
-      deindexed: patch.deindexed ?? current.deindexed,
-      reindexing:
-        patch.reindexing === undefined ? current.reindexing : patch.reindexing,
-    };
-    memoryFullTextIndexStates.set(
-      getFullTextIndexStateKey(libraryType, libraryID),
-      next
-    );
-    return next;
-  },
-
-  async upsertContent(libraryType, libraryID, itemKey, payload) {
-    const library = getMemoryLibrary(libraryType, libraryID);
-    if (!library.items.has(itemKey)) {
-      return {
-        missingItem: true,
-        record: null,
-        version: library.version,
-      };
-    }
-
-    const normalized = normalizeFullTextPayload(payload);
-    if (!normalized) {
-      return {
-        missingItem: false,
-        record: null,
-        version: library.version,
-      };
-    }
-
-    library.version += 1;
-    const record = {
-      ...normalized,
-      itemKey,
-      version: library.version,
-    };
-    getMemoryFullText(libraryType, libraryID).set(itemKey, record);
-
-    return {
-      missingItem: false,
-      record,
-      version: library.version,
-    };
-  },
-
-  async upsertContentBatch(
-    libraryType,
-    libraryID,
-    payloads,
-    ifUnmodifiedSinceVersion
-  ) {
-    const library = getMemoryLibrary(libraryType, libraryID);
-    if (library.version > ifUnmodifiedSinceVersion) {
-      return emptyWriteReport(library.version, true);
-    }
-
-    const report = emptyWriteReport(library.version);
-    for (const [index, payload] of payloads.entries()) {
-      const itemKey = getPayloadItemKey(payload);
-      if (!itemKey) {
-        report.failed[index] = {
-          code: 400,
-          message: "Item key not provided",
-        };
-        continue;
-      }
-      if (!library.items.has(itemKey)) {
-        report.failed[index] = {
-          code: 404,
-          message: "Item not found",
-        };
-        continue;
-      }
-
-      const normalized = normalizeFullTextPayload(payload);
-      if (!normalized) {
-        report.failed[index] = {
-          code: 400,
-          message: "Invalid full-text content",
-        };
-        continue;
-      }
-
-      library.version += 1;
-      const record = {
-        ...normalized,
-        itemKey,
-        version: library.version,
-      };
-      getMemoryFullText(libraryType, libraryID).set(itemKey, record);
-      report.success[index] = itemKey;
-      report.successful[index] = record;
-      report.version = library.version;
-    }
-
-    return report;
-  },
-};
+  new D1FullTextStore(env.DB);
 
 class D1FullTextStore implements FullTextStore {
   constructor(private readonly db: D1Database) {}
@@ -694,35 +519,10 @@ const getPayloadItemKey = (payload: unknown): string | null =>
     ? payload.key
     : null;
 
-const getMemoryLibraryID = (libraryType: LibraryType, libraryID: number) =>
-  libraryType === "user" ? libraryID : -libraryID;
-
-const getMemoryLibrary = (libraryType: LibraryType, libraryID: number) =>
-  getLibrary(getMemoryLibraryID(libraryType, libraryID));
-
-const getMemoryFullTextKey = (libraryType: LibraryType, libraryID: number) =>
-  `${libraryType}:${libraryID}`;
-
 const getFullTextIndexLibraryID = (
   libraryType: LibraryType,
   libraryID: number
 ) => (libraryType === "user" ? 0 : libraryID);
-
-const getFullTextIndexStateKey = (
-  libraryType: LibraryType,
-  libraryID: number
-) => `${libraryType}:${getFullTextIndexLibraryID(libraryType, libraryID)}`;
-
-const getMemoryFullTextIndexState = (
-  libraryType: LibraryType,
-  libraryID: number
-): FullTextIndexState =>
-  memoryFullTextIndexStates.get(
-    getFullTextIndexStateKey(libraryType, libraryID)
-  ) ?? {
-    deindexed: false,
-    reindexing: null,
-  };
 
 const fullTextReindexingStaleAfterSeconds = 6 * 60 * 60;
 
@@ -730,21 +530,6 @@ const getUnixSeconds = () => Math.floor(Date.now() / 1000);
 
 const isStaleReindexing = (reindexing: number | null, now: number) =>
   reindexing !== null && reindexing < now - fullTextReindexingStaleAfterSeconds;
-
-const getMemoryFullText = (
-  libraryType: LibraryType,
-  libraryID: number
-): Map<string, FullTextRecord> => {
-  const key = getMemoryFullTextKey(libraryType, libraryID);
-  const existing = memoryFullText.get(key);
-  if (existing) {
-    return existing;
-  }
-
-  const records = new Map<string, FullTextRecord>();
-  memoryFullText.set(key, records);
-  return records;
-};
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

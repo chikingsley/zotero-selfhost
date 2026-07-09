@@ -40,7 +40,20 @@ Current oracle scores live in `compatibility/candidate-status.md`.
   instead of a root-level route grab bag.
 - Product docs are collapsed to the server README, Cloudflare production
   runbook, compact project-shape note, and compatibility maintenance/status
-  files. Local third-party `references/` clones are deleted and ignored.
+  files. Local third-party `references/` checkouts are ignored and reproduced
+  from the tracked upstream oracle lock.
+- `bun run check` now runs inside Cloudflare's Workers Vitest integration with
+  isolated D1/R2 bindings and all tracked migrations. The runtime suite covers
+  D1 persistence/version preconditions, an R2 attachment round trip, and real
+  bsdiff/xdelta/vcdiff fixtures through the bundled compiled WASM modules.
+- The upstream Zotero oracle is pinned by exact commit and schema digest;
+  `compat:setup`, `compat:status`, and `compat:update` manage the ignored
+  checkout. The pinned local `general,version` slice is `30/30` against
+  Wrangler D1/R2.
+- The complete pinned local suite after the runtime refactor is `445 passing`,
+  `22 pending`, and `6` external-infrastructure failures from direct upstream
+  S3/DynamoDB/HTTPS assertions. The live Cloudflare baseline remains `451
+  passing`, `22 pending`, `0 failing`.
 - The real desktop smoke also exercises Zotero Desktop full-text upload. It
   previously exposed and the server now fixes the batch full-text response shape
   expected by desktop (`successful[index].key`) and the full-text 412 version
@@ -49,9 +62,10 @@ Current oracle scores live in `compatibility/candidate-status.md`.
   R2-backed form uploads, old-style `md5/filename` storage URLs, client v5, ZIP
   uploads, quota checks, and storage-hash clearing. The local runner may still
   print warnings for optional `bsdiff`/`xdelta3`/`vcdiff` tools, but the Zotero
-  test case passes.
-- In-memory mode remains useful for broad local oracle work, but the current
-  compatibility baseline is the deployed Cloudflare D1/R2 path.
+  test case passes; separate `workerd` fixtures execute all three supported
+  Worker algorithm names without those host CLIs.
+- The duplicated in-memory server/stores have been removed. Local development,
+  runtime tests, and compatibility work now use Wrangler/workerd with D1/R2.
 
 ## Now: prove real clients
 
@@ -117,6 +131,10 @@ Current oracle scores live in `compatibility/candidate-status.md`.
   bridge and D1-backed full-text index state.
 - [x] Keep the previously green API slices green while closing the remaining
   slices.
+- [x] Add Cloudflare Workers Vitest coverage using real local D1/R2 bindings,
+  migrations, and Worker dispatch instead of fake Hono bindings.
+- [x] Pin the official Zotero oracle commit and schema digest with reproducible
+  setup, status, and update commands.
 - [ ] Decide whether to add local coverage for the upstream-pending `schema` and
   `tts` cases. They are pending/skipped in the official v3 run, not current
   server failures.

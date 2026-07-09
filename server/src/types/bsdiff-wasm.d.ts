@@ -1,4 +1,4 @@
-declare module "bsdiff-wasm" {
+declare module "bsdiff-wasm/bspatch" {
   interface BspatchFileSystem {
     mkdir: (path: string) => void;
     readFile: (path: string) => Uint8Array;
@@ -12,7 +12,12 @@ declare module "bsdiff-wasm" {
     FS: BspatchFileSystem;
   }
 
-  export function loadBspatch(
+  export default function loadBspatch(
     options?: Record<string, unknown>
   ): Promise<BspatchModule>;
+}
+
+declare module "bsdiff-wasm/bspatch.wasm" {
+  const module: WebAssembly.Module;
+  export default module;
 }

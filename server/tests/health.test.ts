@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import app from "../src/index";
+import { runtimeRequest } from "./runtime";
 
 interface OpenApiDocument {
   info: {
@@ -10,7 +10,7 @@ interface OpenApiDocument {
 
 describe("health route", () => {
   it("returns service health", async () => {
-    const response = await app.request("/health");
+    const response = await runtimeRequest("/health");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
@@ -19,7 +19,7 @@ describe("health route", () => {
   });
 
   it("serves an OpenAPI document", async () => {
-    const response = await app.request("/openapi.json");
+    const response = await runtimeRequest("/openapi.json");
     expect(response.status).toBe(200);
     const body = (await response.json()) as OpenApiDocument;
     expect(body.info.title).toBe("Zotero");

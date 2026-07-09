@@ -32,36 +32,8 @@ const emptyDeleted = (): DeletedResult => ({
   tags: [],
 });
 
-const memoryDeleted = new Map<
-  string,
-  Array<{ key: string; objectType: DeletedObjectType; version: number }>
->();
-
 export const createDeletedStore = (env: Bindings): DeletedStore =>
-  env.DB ? new D1DeletedStore(env.DB) : memoryDeletedStore;
-
-export const clearMemoryDeleted = (
-  libraryType?: LibraryType,
-  libraryID?: number
-) => {
-  if (libraryType && libraryID !== undefined) {
-    memoryDeleted.delete(getMemoryDeletedLibraryKey(libraryType, libraryID));
-    return;
-  }
-
-  memoryDeleted.clear();
-};
-
-export const recordMemoryDeletion = (
-  libraryType: LibraryType,
-  libraryID: number,
-  version: number,
-  objectType: DeletedObjectType,
-  key: string
-) => {
-  const entries = getMemoryDeletedEntries(libraryType, libraryID);
-  entries.push({ key, objectType, version });
-};
+  new D1DeletedStore(env.DB);
 
 export const recordDeletedObjects = async (
   env: Bindings,
@@ -76,13 +48,6 @@ export const recordDeletedObjects = async (
     return;
   }
 
-  if (!env.DB) {
-    for (const key of uniqueKeys) {
-      recordMemoryDeletion(libraryType, libraryID, version, objectType, key);
-    }
-    return;
-  }
-
   const db = env.DB;
   await db.batch(
     uniqueKeys.map((key) =>
@@ -93,29 +58,6 @@ export const recordDeletedObjects = async (
         .bind(libraryType, libraryID, version, objectType, key)
     )
   );
-};
-
-const memoryDeletedStore: DeletedStore = {
-  async listDeleted(libraryType, libraryID, sinceVersion) {
-    const deleted = emptyDeleted();
-
-    for (const entry of getMemoryDeletedEntries(libraryType, libraryID)) {
-      if (entry.version <= sinceVersion) {
-        continue;
-      }
-      appendDeleted(deleted, entry.objectType, entry.key);
-    }
-
-    return {
-      deleted: dedupeDeleted(deleted),
-      version: Math.max(
-        0,
-        ...getMemoryDeletedEntries(libraryType, libraryID).map(
-          (entry) => entry.version
-        )
-      ),
-    };
-  },
 };
 
 class D1DeletedStore implements DeletedStore {
@@ -192,27 +134,3 @@ const dedupeDeleted = (deleted: DeletedResult): DeletedResult => ({
   settings: [...new Set(deleted.settings)],
   tags: [...new Set(deleted.tags)],
 });
-
-const getMemoryDeletedLibraryKey = (
-  libraryType: LibraryType,
-  libraryID: number
-) => `${libraryType}:${libraryID}`;
-
-const getMemoryDeletedEntries = (
-  libraryType: LibraryType,
-  libraryID: number
-) => {
-  const key = getMemoryDeletedLibraryKey(libraryType, libraryID);
-  const existing = memoryDeleted.get(key);
-  if (existing) {
-    return existing;
-  }
-
-  const entries: Array<{
-    key: string;
-    objectType: DeletedObjectType;
-    version: number;
-  }> = [];
-  memoryDeleted.set(key, entries);
-  return entries;
-};

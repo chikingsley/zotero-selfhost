@@ -1,6 +1,22 @@
 
 ## Unreleased
 
+- Added Cloudflare Workers Vitest coverage with isolated D1/R2 bindings, real
+  migrations, Worker entrypoint dispatch, sync-version characterization, and
+  an attachment storage round trip.
+- Added real `workerd` fixture coverage for the bundled bsdiff, xdelta, and
+  vcdiff patch engines. Patched `bsdiff-wasm`'s generated loader to accept a
+  statically imported compiled WASM module instead of selecting its Node-only
+  `process.binding()` path in Workers. Removed redundant Wrangler additional-
+  module discovery, eliminating the duplicate-WASM warnings and unrelated
+  dependency files from the deployment bundle.
+- Added a reproducible Zotero oracle lock plus setup, status, update, smoke, and
+  full-suite commands without copying upstream tests into the local Vitest
+  suite.
+- Removed the duplicated in-memory server and domain stores; local development
+  and compatibility tests now use the Worker runtime with D1/R2.
+- Updated multi-content Atom JSON serialization to the field order required by
+  the current pinned Zotero oracle.
 - Added object API create-by-PUT compatibility for user/group items, collections, and saved searches.
 - Added object trash-state normalization for item, collection, and saved-search writes.
 - Documented object API compatibility status in docs/object-compatibility.md.
@@ -73,8 +89,7 @@
   `bsdiff` patch application.
 - Added Worker-side `xdelta` and `vcdiff` partial-upload patch application via
   `xdelta3-wasm`.
-- Added Wrangler `CompiledWasm` module rules and switched xdelta patching to a
-  Worker-native static `.wasm` import path.
+- Switched xdelta patching to a Worker-native static `.wasm` import path.
 - Added a concrete official `dataserver` reference-stack runbook covering
   required services, PHP config, MySQL reset order, object storage, and remote
   test config.

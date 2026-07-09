@@ -15,7 +15,8 @@ Use the same Cloudflare Worker stack already used in related projects:
 - D1 for metadata, sync versions, auth records, and library state.
 - R2 for attachment bytes and large artifacts.
 - Wrangler for local dev and deploy.
-- Vitest for unit/contract tests.
+- Vitest plus Cloudflare's Workers integration for runtime/contract tests in
+  `workerd` with isolated D1 and R2 bindings.
 - Ultracite with Biome for lint/format.
 - Static contract checks before live checks.
 - Durable Objects only where per-library write serialization or realtime coordination is actually needed.
@@ -80,17 +81,23 @@ Project-local commands in `package.json`:
 ```json
 {
   "scripts": {
-    "dev": "wrangler dev",
-    "dev:memory": "bun scripts/serve.ts",
+    "dev": "bun run db:migrations:apply:local && wrangler dev",
     "deploy": "bun run db:migrations:apply && wrangler deploy",
     "deploy:worker": "wrangler deploy",
     "deploy:dry-run": "wrangler deploy --dry-run",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "db:migrations:apply:local": "CI=1 wrangler d1 migrations apply DB --local",
     "cf:types": "wrangler types",
     "cf:types:check": "wrangler types --check",
     "cf:whoami": "wrangler whoami",
+    "compat:setup": "bun ../compatibility/oracle.ts setup",
+    "compat:status": "bun ../compatibility/oracle.ts status",
+    "compat:update": "bun ../compatibility/oracle.ts update",
     "smoke:desktop": "bun scripts/desktop-smoke.ts",
-    "typecheck": "bun run cf:types && tsc --noEmit"
+    "typecheck": "bun run cf:types && tsc --noEmit",
+    "test:runtime": "vitest run",
+    "test:oracle:smoke": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 general,version",
+    "test:oracle": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 -t 240000"
   },
   "devDependencies": {}
 }
@@ -102,10 +109,21 @@ The deployed Cloudflare D1/R2 path is the compatibility baseline. The latest
 live official Zotero v3 run is `451 passing`, `22 pending`, `0 failing`; the
 pending tests are upstream-skipped `schema` and `tts` cases.
 
-`scripts/serve.ts` is intentionally not the production server. It runs the same
-Hono app directly on Bun without D1/R2 bindings, which makes the domain stores
-fall back to in-memory mode. Use it only for fast local compatibility harness
-runs; use `wrangler dev` or the deployed Worker for Cloudflare-shaped behavior.
+`bun run check` runs the local suite inside Cloudflare's `workerd` runtime. It
+loads `wrangler.jsonc`, applies every migration to an isolated D1 database, and
+uses a local R2 binding. The tests cover Worker dispatch, D1 persistence,
+version/precondition behavior, an attachment round trip through D1/R2, and real
+fixtures through the bundled bsdiff/xdelta/vcdiff compiled WASM modules.
+
+`bsdiff-wasm` is tracked as a Bun patched dependency because its generated
+loader otherwise mistakes Workers' Node compatibility layer for Node itself and
+calls unsupported `process.binding()` APIs. The small patch exposes its compiled
+WASM file and accepts the same static-module instantiation path used by the
+Worker source; keep the runtime fixture green when updating that dependency.
+
+The legacy Bun-only memory server and duplicated memory stores have been
+removed. `bun run dev` is the single local server path; it applies pending local
+D1 migrations before starting Wrangler with local D1/R2 bindings.
 
 ## Real Deployment Direction
 

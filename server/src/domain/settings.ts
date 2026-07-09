@@ -1,6 +1,4 @@
 import type { Bindings } from "../bindings";
-import { recordMemoryDeletion } from "./deleted";
-import { getLibrary } from "./state";
 
 type LibraryType = "group" | "user";
 
@@ -93,7 +91,7 @@ const adminOnlySettingNames = new Set([
 ]);
 
 export const createSettingsStore = (env: Bindings): SettingsStore =>
-  env.DB ? new D1SettingsStore(env.DB) : memorySettingsStore;
+  new D1SettingsStore(env.DB);
 
 export const isAdminOnlySettingKey = (settingKey: string): boolean =>
   adminOnlySettingNames.has(settingKey);
@@ -105,200 +103,6 @@ export const parseSettingsRequestBody = (body: string): unknown => {
   );
 
   return JSON.parse(bigintSafeBody);
-};
-
-const memorySettings = new Map<string, Map<string, SettingRecord>>();
-
-export const clearMemorySettings = (
-  libraryType?: LibraryType,
-  libraryID?: number
-) => {
-  if (libraryType && libraryID !== undefined) {
-    memorySettings.delete(getMemorySettingsLibraryKey(libraryType, libraryID));
-    return;
-  }
-
-  memorySettings.clear();
-};
-
-const memorySettingsStore: SettingsStore = {
-  async clearSettings(libraryType, libraryID) {
-    clearMemorySettings(libraryType, libraryID);
-  },
-
-  async deleteSettings(
-    libraryType,
-    libraryID,
-    settingKeys,
-    ifUnmodifiedSinceVersion = null,
-    requireExisting = false
-  ) {
-    const settings = getMemorySettings(libraryType, libraryID);
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const existing = settingKeys.filter((settingKey) =>
-      settings.has(settingKey)
-    );
-
-    if (requireExisting && existing.length === 0) {
-      return {
-        deleted: [],
-        notFound: true,
-        preconditionFailed: false,
-        version: library.version,
-      };
-    }
-
-    if (
-      ifUnmodifiedSinceVersion !== null &&
-      existing.some(
-        (settingKey) =>
-          (settings.get(settingKey)?.version ?? 0) > ifUnmodifiedSinceVersion
-      )
-    ) {
-      return {
-        deleted: [],
-        notFound: false,
-        preconditionFailed: true,
-        version: library.version,
-      };
-    }
-
-    if (existing.length > 0) {
-      library.version += 1;
-      for (const settingKey of existing) {
-        settings.delete(settingKey);
-        recordMemoryDeletion(
-          libraryType,
-          libraryID,
-          library.version,
-          "setting",
-          settingKey
-        );
-      }
-    }
-
-    return {
-      deleted: existing,
-      notFound: false,
-      preconditionFailed: false,
-      version: library.version,
-    };
-  },
-
-  async deleteSettingsWithoutLog(libraryType, libraryID, settingKeys) {
-    const settings = getMemorySettings(libraryType, libraryID);
-    for (const settingKey of settingKeys) {
-      settings.delete(settingKey);
-    }
-  },
-
-  async getSetting(libraryType, libraryID, settingKey) {
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const setting = getMemorySettings(libraryType, libraryID).get(settingKey);
-
-    return setting
-      ? {
-          setting,
-          version: library.version,
-        }
-      : null;
-  },
-
-  async listSettings(libraryType, libraryID, sinceVersion = null) {
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const settings: Record<string, SettingRecord> = {};
-
-    for (const [settingKey, setting] of getMemorySettings(
-      libraryType,
-      libraryID
-    )) {
-      if (sinceVersion !== null && setting.version <= sinceVersion) {
-        continue;
-      }
-      settings[settingKey] = setting;
-    }
-
-    return {
-      settings,
-      version: library.version,
-    };
-  },
-
-  async upsertSettings(
-    libraryType,
-    libraryID,
-    entries,
-    ifUnmodifiedSinceVersion = null,
-    canWriteAdminSettings = true
-  ) {
-    const settings = getMemorySettings(libraryType, libraryID);
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const result = createSettingWriteResult(library.version);
-
-    if (
-      ifUnmodifiedSinceVersion !== null &&
-      library.version > ifUnmodifiedSinceVersion
-    ) {
-      result.preconditionFailed = true;
-      return result;
-    }
-
-    // Official checkJSONObjectVersion: a per-setting 'version' property lower
-    // than the stored setting's version fails the whole request with 412.
-    for (const [settingKey, payload] of entries) {
-      const requestedVersion = payload?.version;
-      if (typeof requestedVersion === "number") {
-        const current = settings.get(settingKey);
-        if (current && current.version > requestedVersion) {
-          result.preconditionFailed = true;
-          return result;
-        }
-      }
-    }
-
-    const changes: [string, unknown, number][] = [];
-
-    entries.forEach(([settingKey, payload], index) => {
-      const failure = validateSettingWrite(
-        libraryType,
-        settingKey,
-        payload,
-        canWriteAdminSettings
-      );
-      if (failure) {
-        result.failed[index] = failure;
-        return;
-      }
-
-      const value = payload.value;
-      const existing = settings.get(settingKey);
-      if (existing && settingValuesEqual(existing.value, value)) {
-        result.unchanged[index] = existing;
-        return;
-      }
-
-      changes.push([settingKey, value, index]);
-    });
-
-    if (changes.length === 0) {
-      return result;
-    }
-
-    library.version += 1;
-    result.changed = true;
-    result.version = library.version;
-
-    for (const [settingKey, value, index] of changes) {
-      const setting = {
-        value,
-        version: library.version,
-      };
-      settings.set(settingKey, setting);
-      result.successful[index] = setting;
-    }
-
-    return result;
-  },
 };
 
 class D1SettingsStore implements SettingsStore {
@@ -674,26 +478,6 @@ const createSettingWriteResult = (version: number): SettingWriteResult => ({
   unchanged: {},
   version,
 });
-
-const getMemoryLibraryID = (libraryType: LibraryType, libraryID: number) =>
-  libraryType === "user" ? libraryID : -libraryID;
-
-const getMemorySettingsLibraryKey = (
-  libraryType: LibraryType,
-  libraryID: number
-) => `${libraryType}:${libraryID}`;
-
-const getMemorySettings = (libraryType: LibraryType, libraryID: number) => {
-  const key = getMemorySettingsLibraryKey(libraryType, libraryID);
-  const existing = memorySettings.get(key);
-  if (existing) {
-    return existing;
-  }
-
-  const settings = new Map<string, SettingRecord>();
-  memorySettings.set(key, settings);
-  return settings;
-};
 
 const rowToSetting = (row: D1SettingRow): SettingRecord => ({
   value: JSON.parse(row.value_json),

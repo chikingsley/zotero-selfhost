@@ -160,8 +160,23 @@ export const parseFileParams = async (
   c: Context<{ Bindings: Bindings }>
 ): Promise<URLSearchParams> => {
   const params = new URL(c.req.url).searchParams;
-  const body = await c.req.text();
-  const bodyParams = new URLSearchParams(body);
+  const contentType = c.req.header("Content-Type")?.toLowerCase() ?? "";
+  const bodyParams = new URLSearchParams();
+
+  if (contentType.startsWith("application/x-www-form-urlencoded")) {
+    const form = await c.req.formData();
+    for (const [key, value] of form) {
+      if (typeof value === "string") {
+        bodyParams.set(key, value);
+      }
+    }
+  } else {
+    const body = await c.req.text();
+    const parsed = new URLSearchParams(body);
+    for (const [key, value] of parsed) {
+      bodyParams.set(key, value);
+    }
+  }
 
   for (const [key, value] of bodyParams) {
     params.set(key, value);

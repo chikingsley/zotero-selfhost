@@ -1,13 +1,10 @@
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import app from "../src/index";
+import { runtimeRequest } from "./runtime";
 
 const rootAuth = `Basic ${btoa("root:local-root-password")}`;
 
-const request = (path: string, init?: RequestInit) =>
-  app.request(path, init, {
-    ROOT_PASSWORD: "local-root-password",
-    ROOT_USERNAME: "root",
-  });
+const request = runtimeRequest;
 
 describe("Zotero compatibility bootstrap", () => {
   it("sets up test users and API keys", async () => {
@@ -27,6 +24,14 @@ describe("Zotero compatibility bootstrap", () => {
     expect(body.user1.userID).toBe(1);
     expect(body.user1.apiKey).toHaveLength(8);
     expect(body.user2.userID).toBe(2);
+
+    const persisted = await env.DB.prepare(
+      "SELECT user_id, api_key FROM api_keys ORDER BY user_id"
+    ).all<{ api_key: string; user_id: number }>();
+    expect(persisted.results).toEqual([
+      { api_key: body.user1.apiKey, user_id: 1 },
+      { api_key: body.user2.apiKey, user_id: 2 },
+    ]);
   });
 
   it("supports the first general-test item flow", async () => {
@@ -141,5 +146,87 @@ describe("Zotero compatibility bootstrap", () => {
     expect(fetchedBody.data.title).toBe("AA");
     expect(fetchedBody.data.creators[0].name).toBe("BB");
     expect(fetchedBody.data.tags[0].tag).toBe("CC");
+  });
+
+  it("enforces key-write version preconditions in D1", async () => {
+    const setup = await request("/test/setup?u=1&u2=2", {
+      body: " ",
+      headers: { Authorization: rootAuth },
+      method: "POST",
+    });
+    const setupBody = (await setup.json()) as {
+      user1: { apiKey: string };
+    };
+    const authorization = `Bearer ${setupBody.user1.apiKey}`;
+
+    const template = await request("/items/new?itemType=book");
+    const item = (await template.json()) as Record<string, unknown>;
+    item.title = "Versioned title";
+
+    const create = await request("/users/1/items", {
+      body: JSON.stringify([item]),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const createBody = (await create.json()) as {
+      success: Record<string, string>;
+    };
+    const itemKey = createBody.success["0"];
+    const createdVersion = create.headers.get("Last-Modified-Version");
+    expect(itemKey).toBeTruthy();
+    expect(createdVersion).toBeTruthy();
+    if (!(itemKey && createdVersion)) {
+      throw new Error("Expected an item key and library version");
+    }
+
+    const missingPrecondition = await request(`/users/1/items/${itemKey}`, {
+      body: JSON.stringify({ title: "Missing precondition" }),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      method: "PATCH",
+    });
+    expect(missingPrecondition.status).toBe(428);
+
+    const update = await request(`/users/1/items/${itemKey}`, {
+      body: JSON.stringify({ title: "Updated title" }),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+        "If-Unmodified-Since-Version": createdVersion,
+      },
+      method: "PATCH",
+    });
+    expect(update.status).toBe(204);
+    const updatedVersion = update.headers.get("Last-Modified-Version");
+    expect(Number(updatedVersion)).toBeGreaterThan(Number(createdVersion));
+
+    const staleUpdate = await request(`/users/1/items/${itemKey}`, {
+      body: JSON.stringify({ title: "Stale title" }),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+        "If-Unmodified-Since-Version": createdVersion,
+      },
+      method: "PATCH",
+    });
+    expect(staleUpdate.status).toBe(412);
+    expect(staleUpdate.headers.get("Last-Modified-Version")).toBe(
+      updatedVersion
+    );
+
+    const row = await env.DB.prepare(
+      "SELECT version, data_json FROM items WHERE library_type = 'user' AND library_id = 1 AND item_key = ?"
+    )
+      .bind(itemKey)
+      .first<{ data_json: string; version: number }>();
+    expect(row?.version).toBe(Number(updatedVersion));
+    expect(JSON.parse(row?.data_json ?? "{}")).toMatchObject({
+      title: "Updated title",
+    });
   });
 });

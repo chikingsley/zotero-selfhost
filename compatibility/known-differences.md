@@ -15,14 +15,21 @@ This file tracks accepted differences and harness caveats, not open failures.
 
 ## Local Harness Caveats
 
-- **In-memory `file` slice**: the fast local memory server cannot satisfy the
-  S3/R2-specific file tests that require real object storage credentials and URL
-  shapes. The deployed Cloudflare D1/R2 path is the compatibility baseline for
-  file behavior.
+- **Local Wrangler external-service cases**: the official suite directly uses
+  AWS S3 and DynamoDB for a small set of file/full-text setup assertions. Local
+  Miniflare D1/R2 has no AWS credentials or HTTPS storage hostname, so those
+  cases remain live-deployment checks. The application-level R2 upload/download
+  flow is covered by Workers Vitest.
 - **Partial-update tools**: the official file tests skip some optional
   `bsdiff`, `xdelta3`, and `vcdiff` CLI subcases when those tools are not
   installed locally. The Worker bundles WASM support for the supported
-  partial-update algorithms, and the official file test passes.
+  partial-update algorithms, and the official file test passes. Separate
+  Workers-runtime fixtures execute bsdiff plus both xdelta/vcdiff names inside
+  `workerd`, so the host CLI skips do not leave the deployed WASM path untested.
+- **Upstream npm audit**: Zotero's pinned remote-test lock currently reports
+  advisories in test-only dependencies. The managed checkout is ignored,
+  excluded from Worker bundles, and installed with lifecycle scripts disabled;
+  this repo does not patch the upstream oracle in place.
 
 ## Deliberate Product Scope
 

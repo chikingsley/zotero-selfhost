@@ -1,5 +1,4 @@
 import type { Bindings } from "../bindings";
-import { getState } from "./state";
 import { getUserIdentity } from "./user-identity";
 
 export type Access = Record<string, unknown>;
@@ -68,7 +67,7 @@ interface KeyStore {
 }
 
 export const createKeyStore = (env: Bindings): KeyStore =>
-  env.DB ? new D1KeyStore(env.DB) : memoryKeyStore;
+  new D1KeyStore(env.DB);
 
 export const publicKeyInfo = (key: KeyInfo): KeyInfo => ({
   access: key.access,
@@ -162,173 +161,6 @@ export const keyAllowsGroupPermission = (
   return candidates.some((candidate) =>
     hasBooleanPermission(candidate, "write")
   );
-};
-
-interface MemoryLoginSession {
-  access: Access | null;
-  apiKey?: string;
-  clientName: string;
-  sessionToken: string;
-  status: LoginSessionStatusValue;
-  userID: number | null;
-}
-
-const memoryLoginSessions = new Map<string, MemoryLoginSession>();
-
-const memoryKeyStore: KeyStore = {
-  async cancelSession(sessionToken) {
-    const session = memoryLoginSessions.get(sessionToken);
-    if (!session) {
-      return "missing";
-    }
-    if (session.status !== "pending") {
-      return "conflict";
-    }
-
-    session.status = "cancelled";
-    return "cancelled";
-  },
-
-  async completeSession(input) {
-    const sessionToken =
-      typeof input.sessionToken === "string" ? input.sessionToken : null;
-    if (!(sessionToken && isPlainObject(input.access))) {
-      return "invalid";
-    }
-
-    const session = memoryLoginSessions.get(sessionToken);
-    if (!session) {
-      return "missing";
-    }
-    if (session.status !== "pending") {
-      return "conflict";
-    }
-
-    const userID = session.userID ?? parsePositiveInteger(input.userID);
-    if (!userID) {
-      return "invalid";
-    }
-
-    const key = await this.createKey({
-      access: input.access,
-      name: getSessionKeyName(session.clientName),
-      userID,
-    });
-    session.apiKey = key.key;
-    session.status = "completed";
-    session.userID = userID;
-    session.access = key.access;
-    return "completed";
-  },
-
-  async createKey(input) {
-    const key = generateApiKey();
-    const record = {
-      access: normalizeAccess(input.access),
-      dateAdded: new Date().toISOString(),
-      key,
-      name: normalizeName(input.name),
-      userID: input.userID,
-    };
-    getState().apiKeys.set(key, record);
-    return keyRecordToInfo(record);
-  },
-
-  async createSession(input) {
-    const currentKey = input.currentApiKey
-      ? await this.getKey(input.currentApiKey)
-      : null;
-    const requestedUserID = parsePositiveInteger(input.userID);
-    const sessionToken = generateSessionToken();
-    const session: MemoryLoginSession = {
-      access: currentKey?.access ?? null,
-      clientName: detectClientName(input.userAgent),
-      sessionToken,
-      status: "pending",
-      userID: currentKey?.userID ?? requestedUserID,
-    };
-    memoryLoginSessions.set(sessionToken, session);
-
-    return {
-      loginURL: `${input.loginBaseURL}/login?session=${sessionToken}`,
-      sessionToken,
-    };
-  },
-
-  async deleteKey(apiKey) {
-    return getState().apiKeys.delete(apiKey);
-  },
-
-  async getKey(apiKey) {
-    const record = getState().apiKeys.get(apiKey);
-    return record ? keyRecordToInfo(record) : null;
-  },
-
-  async getSessionInfo(sessionToken) {
-    const session = memoryLoginSessions.get(sessionToken);
-    return session
-      ? {
-          access: session.access,
-          status: session.status,
-          userID: session.userID,
-        }
-      : null;
-  },
-
-  async getSessionStatus(sessionToken) {
-    const session = memoryLoginSessions.get(sessionToken);
-    if (!session) {
-      return null;
-    }
-
-    const status: LoginSessionStatus = {
-      status: session.status,
-    };
-    if (session.status === "completed" && session.apiKey && session.userID) {
-      status.apiKey = session.apiKey;
-      status.userID = session.userID;
-      status.username = getUsername(session.userID);
-    }
-
-    return status;
-  },
-
-  async listUserKeys(userID) {
-    return [...getState().apiKeys.values()]
-      .filter((record) => record.userID === userID)
-      .map(keyRecordToInfo);
-  },
-
-  async recordAccess(apiKey) {
-    const record = getState().apiKeys.get(apiKey);
-    if (record) {
-      record.lastUsed = new Date().toISOString();
-    }
-  },
-
-  async resolveCredentials(input) {
-    if (!isPlainObject(input) || typeof input.password !== "string") {
-      return null;
-    }
-
-    const userID = Number(input.userID);
-    if (Number.isFinite(userID) && userID > 0) {
-      return userID;
-    }
-
-    return getState().apiKeys.values().next().value?.userID ?? 1;
-  },
-
-  async updateKey(apiKey, input) {
-    const record = getState().apiKeys.get(apiKey);
-    if (!record) {
-      return null;
-    }
-
-    record.access = normalizeAccess(input.access ?? record.access);
-    record.name = normalizeName(input.name ?? record.name);
-    return keyRecordToInfo(record);
-  },
 };
 
 class D1KeyStore implements KeyStore {
@@ -649,25 +481,6 @@ const rowToKeyInfo = (row: KeyRow): KeyInfo => ({
   name: row.label ?? undefined,
   userID: row.user_id,
   username: row.username ?? getUsername(row.user_id),
-});
-
-const keyRecordToInfo = (record: {
-  access?: Record<string, unknown>;
-  dateAdded?: string;
-  key: string;
-  lastUsed?: string;
-  name?: string;
-  userID: number;
-}): KeyInfo => ({
-  access: record.access ?? defaultAccess(),
-  dateAdded: record.dateAdded,
-  displayName: getDisplayName(record.userID),
-  id: record.key,
-  key: record.key,
-  lastUsed: record.lastUsed,
-  name: record.name,
-  userID: record.userID,
-  username: getUsername(record.userID),
 });
 
 const normalizeAccess = (access: unknown): Access => {

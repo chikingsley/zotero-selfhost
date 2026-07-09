@@ -1,6 +1,5 @@
 import type { Context } from "hono";
 import type { Bindings } from "../bindings";
-import { getState } from "./state";
 
 const decodeBasicAuth = (authorization: string): [string, string] | null => {
   if (!authorization.toLowerCase().startsWith("basic ")) {
@@ -53,16 +52,4 @@ export const getRequestApiKey = (
   }
 
   return null;
-};
-
-export const authenticateUser = (
-  c: Context<{ Bindings: Bindings }>,
-  userID: number
-): boolean => {
-  const key = getRequestApiKey(c);
-  if (!key) {
-    return false;
-  }
-
-  return getState().apiKeys.get(key)?.userID === userID;
 };

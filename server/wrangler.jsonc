@@ -5,18 +5,6 @@
   "compatibility_date": "2026-07-08",
   "compatibility_flags": ["nodejs_compat"],
   "base_dir": ".",
-  "find_additional_modules": true,
-  "preserve_file_names": true,
-  "rules": [
-    {
-      "type": "CompiledWasm",
-      "globs": [
-        "node_modules/bsdiff-wasm/dist/*.wasm",
-        "node_modules/xdelta3-wasm/dist/*.wasm"
-      ],
-      "fallthrough": true
-    }
-  ],
   "observability": {
     "enabled": true
   },

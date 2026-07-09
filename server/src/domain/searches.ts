@@ -1,6 +1,4 @@
 import type { Bindings } from "../bindings";
-import { recordMemoryDeletion } from "./deleted";
-import { getLibrary } from "./state";
 import { generateZoteroKey, sanitizeZoteroData } from "./zotero";
 
 type LibraryType = "group" | "user";
@@ -64,21 +62,7 @@ interface D1SearchRow {
 }
 
 export const createSearchStore = (env: Bindings): SearchStore =>
-  env.DB ? new D1SearchStore(env.DB) : memorySearchStore;
-
-const memorySearches = new Map<string, Map<string, SearchRecord>>();
-
-export const clearMemorySearches = (
-  libraryType?: LibraryType,
-  libraryID?: number
-) => {
-  if (libraryType && libraryID !== undefined) {
-    memorySearches.delete(getMemorySearchLibraryKey(libraryType, libraryID));
-    return;
-  }
-
-  memorySearches.clear();
-};
+  new D1SearchStore(env.DB);
 
 export const searchNeedsInvalidProp = (
   search: SearchRecord,
@@ -98,149 +82,6 @@ export const searchNeedsInvalidProp = (
         )
     )
   );
-};
-
-const memorySearchStore: SearchStore = {
-  async clearSearches(libraryType, libraryID) {
-    clearMemorySearches(libraryType, libraryID);
-  },
-
-  async deleteSearches(
-    libraryType,
-    libraryID,
-    searchKeys,
-    ifUnmodifiedSinceVersion = null
-  ) {
-    const searches = getMemorySearches(libraryType, libraryID);
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const existingKeys = searchKeys.filter((searchKey) =>
-      searches.has(searchKey)
-    );
-
-    if (
-      ifUnmodifiedSinceVersion !== null &&
-      library.version > ifUnmodifiedSinceVersion
-    ) {
-      return {
-        deleted: [],
-        preconditionFailed: true,
-        version: library.version,
-      };
-    }
-
-    if (existingKeys.length > 0) {
-      library.version += 1;
-      for (const searchKey of existingKeys) {
-        searches.delete(searchKey);
-        recordMemoryDeletion(
-          libraryType,
-          libraryID,
-          library.version,
-          "search",
-          searchKey
-        );
-      }
-    }
-
-    return {
-      deleted: existingKeys,
-      preconditionFailed: false,
-      version: library.version,
-    };
-  },
-
-  async getSearch(libraryType, libraryID, searchKey) {
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const search = getMemorySearches(libraryType, libraryID).get(searchKey);
-
-    return search
-      ? {
-          search,
-          version: library.version,
-        }
-      : null;
-  },
-
-  async listSearches(libraryType, libraryID, options = {}) {
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const requestedKeys = options.searchKeys?.length
-      ? new Set(options.searchKeys)
-      : null;
-    const searches = [...getMemorySearches(libraryType, libraryID).values()]
-      .filter((search) => !requestedKeys || requestedKeys.has(search.key))
-      .filter(
-        (search) =>
-          options.sinceVersion === null ||
-          options.sinceVersion === undefined ||
-          search.version > options.sinceVersion
-      )
-      .sort((left, right) => left.version - right.version);
-
-    return {
-      searches,
-      version: library.version,
-    };
-  },
-
-  async upsertSearches(
-    libraryType,
-    libraryID,
-    objects,
-    ifUnmodifiedSinceVersion = null
-  ) {
-    const searches = getMemorySearches(libraryType, libraryID);
-    const library = getLibrary(getMemoryLibraryID(libraryType, libraryID));
-    const result = createSearchWriteResult(library.version);
-
-    if (
-      ifUnmodifiedSinceVersion !== null &&
-      library.version > ifUnmodifiedSinceVersion
-    ) {
-      return {
-        ...result,
-        preconditionFailed: true,
-      };
-    }
-
-    for (const [index, object] of objects.entries()) {
-      const key =
-        typeof object.key === "string" ? object.key : generateZoteroKey();
-      const existing = searches.get(key);
-      const failure = validateSearchWrite(object, existing);
-      if (failure) {
-        result.failed[index] = failure;
-        continue;
-      }
-
-      const merged = sanitizeSearchData(
-        key,
-        library.version + 1,
-        object,
-        existing
-      );
-      if (existing && searchDataEqualIgnoringVersion(existing.data, merged)) {
-        result.unchanged.push(existing);
-        continue;
-      }
-
-      library.version += 1;
-      const data = sanitizeSearchData(key, library.version, object, existing);
-      const record = {
-        data,
-        key,
-        version: library.version,
-      };
-      searches.set(key, record);
-      result.success.push(key);
-      result.successful.push(record);
-      result.version = library.version;
-    }
-
-    return {
-      ...result,
-      preconditionFailed: false,
-    };
-  },
 };
 
 class D1SearchStore implements SearchStore {
@@ -717,26 +558,6 @@ const parseSearchRow = (row: D1SearchRow): SearchRecord => ({
   key: row.search_key,
   version: row.version,
 });
-
-const getMemoryLibraryID = (libraryType: LibraryType, libraryID: number) =>
-  libraryType === "user" ? libraryID : -libraryID;
-
-const getMemorySearchLibraryKey = (
-  libraryType: LibraryType,
-  libraryID: number
-) => `${libraryType}:${libraryID}`;
-
-const getMemorySearches = (libraryType: LibraryType, libraryID: number) => {
-  const key = getMemorySearchLibraryKey(libraryType, libraryID);
-  const existing = memorySearches.get(key);
-  if (existing) {
-    return existing;
-  }
-
-  const searches = new Map<string, SearchRecord>();
-  memorySearches.set(key, searches);
-  return searches;
-};
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

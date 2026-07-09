@@ -93,6 +93,9 @@ There are no known failing official v3 API slices in the latest live run.
 
 ## In-memory local path
 
+Historical scores from the removed in-memory path follow. This path is no
+longer executable or part of the fast regression gate.
+
 Scores from running Zotero's official remote test suite
 (`references/dataserver/tests/remote/tests/3`) against the candidate server in
 in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
@@ -114,17 +117,31 @@ in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 ## How to reproduce
 
 ```bash
-# 1. boot the candidate (in-memory mode)
-cd server && bun run dev:memory &
-
-# 2. run a slice (config: compatibility/config/candidate.local.json)
-bun compatibility/run-zotero-tests.ts --target candidate -- -v 3 version
-
-# subset of a slice via mocha grep
-bun compatibility/run-zotero-tests.ts --target candidate -- -v 3 -g "trash" item
+# Historical only: the former in-memory candidate is no longer available.
+# Current local runs use `cd server && bun run dev` and the commands documented
+# in compatibility/README.md.
 ```
 
 The harness needs a local-only `references/dataserver/tests/remote` clone and
 the current Zotero schema at
 `references/dataserver/htdocs/zotero-schema/schema.json`. See
 `compatibility/README.md` for the refresh command.
+
+## Local Workers runtime safety net
+
+Current fast gate: Cloudflare Workers Vitest integration with the tracked
+`wrangler.jsonc`, all three D1 migrations, isolated local D1/R2 bindings, and
+requests through the Worker's exported `fetch()` handler.
+
+- `13 passing`, `0 failing` across health/OpenAPI, test-user persistence,
+  general item flow, D1 version preconditions, migration state, direct R2
+  metadata/ranges, a complete attachment upload/register/download round trip
+  through D1/R2, Zotero's serialized Atom multi-content field order, real
+  bsdiff/xdelta/vcdiff WASM fixtures, and explicit unsupported-xdiff handling.
+- Pinned official local smoke at Zotero `dataserver`
+  `9b640674e94f1817513799fe82124be041b303b2`: `general,version` is `30
+  passing`, `0 failing` against local Wrangler D1/R2.
+- Pinned complete local run after removing the memory backends: `445 passing`,
+  `22 pending`, `6 environment-only failures`. The six require an HTTPS storage
+  hostname, direct AWS S3 access, or direct DynamoDB access from the upstream
+  harness; no application-level D1/R2 assertion failed.
