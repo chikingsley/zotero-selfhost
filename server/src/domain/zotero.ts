@@ -1,3 +1,4 @@
+import { randomString } from "../lib/random";
 import {
   validAnnotationTypes,
   validAttachmentLinkModes,
@@ -6,10 +7,7 @@ import {
 
 const keyChars = "23456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
 
-export const generateZoteroKey = (): string =>
-  Array.from({ length: 8 }, () =>
-    keyChars.charAt(Math.floor(Math.random() * keyChars.length))
-  ).join("");
+export const generateZoteroKey = (): string => randomString(keyChars, 8);
 
 const sanitizeValue = (value: unknown): unknown => {
   if (typeof value === "string") {

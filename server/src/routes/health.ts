@@ -4,7 +4,7 @@ import type { Bindings } from "../bindings";
 const healthResponseSchema = z
   .object({
     ok: z.literal(true),
-    service: z.literal("zotero"),
+    service: z.literal("zotero-selfhost"),
   })
   .openapi("HealthResponse");
 
@@ -29,6 +29,6 @@ export const health = new OpenAPIHono<{ Bindings: Bindings }>().openapi(
   (c) =>
     c.json({
       ok: true,
-      service: "zotero",
+      service: "zotero-selfhost",
     } as const)
 );

@@ -130,14 +130,17 @@ the current Zotero schema at
 ## Local Workers runtime safety net
 
 Current fast gate: Cloudflare Workers Vitest integration with the tracked
-`wrangler.jsonc`, all three D1 migrations, isolated local D1/R2 bindings, and
-requests through the Worker's exported `fetch()` handler.
+`wrangler.jsonc`, all four D1 migrations, isolated local D1/R2/Durable Object
+bindings, and requests through the Worker's exported `fetch()` handler.
 
-- `13 passing`, `0 failing` across health/OpenAPI, test-user persistence,
+- `16 passing`, `0 failing` across health/OpenAPI, test-user persistence,
   general item flow, D1 version preconditions, migration state, direct R2
   metadata/ranges, a complete attachment upload/register/download round trip
   through D1/R2, Zotero's serialized Atom multi-content field order, real
   bsdiff/xdelta/vcdiff WASM fixtures, and explicit unsupported-xdiff handling.
+  The gate now also covers one-time owner bootstrap, Cloudflare-style owner-key
+  recovery, owner administration, authenticated Zotero streaming
+  subscriptions, and `topicUpdated` delivery through `ZoteroStreamHub`.
 - Pinned official local smoke at Zotero `dataserver`
   `9b640674e94f1817513799fe82124be041b303b2`: `general,version` is `30
   passing`, `0 failing` against local Wrangler D1/R2.

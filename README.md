@@ -1,84 +1,128 @@
-# Zotero Self-Host
+# Zotero Self-Host Server
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chikingsley/zotero-selfhost/tree/main/server)
 
-Self-hostable Zotero API v3 compatible server for Cloudflare Workers, D1, and
-R2. The deployable product lives in [`server/`](server/).
+A self-hostable Zotero API v3 compatible sync server built on Cloudflare
+Workers, D1, R2, and Durable Objects. The deployable product is in
+[`server/`](server/).
 
-The method is not to guess Zotero behavior:
+This is an independent implementation. “Zotero” is a registered trademark of
+the Corporation for Digital Scholarship; this project is not affiliated with
+or endorsed by Zotero.
 
-1. Use Zotero's official remote API tests as the acceptance oracle.
-2. Build a smaller modern server with TypeScript, Bun, Hono, D1, and R2.
-3. Test real clients against the deployed Worker.
+## Current Status
 
-## Status
+- The last deployed compatibility baseline is `451 passing`, `22` upstream-
+  pending, and `0 failing` against Zotero's pinned official v3 HTTP tests.
+- A disposable Zotero Desktop profile has completed metadata and attachment
+  synchronization against the deployed D1/R2 implementation.
+- The current unreleased server adds final resource naming, one-time owner
+  bootstrap, Cloudflare-account recovery, strict compatibility-test isolation,
+  and Zotero-protocol WebSocket notifications through a hibernating Durable
+  Object.
+- The current deployed custom-domain installation still uses the older
+  `zotero` / `zotero-attachments` resources. It has not yet been migrated to
+  this unreleased resource layout.
 
-The deployed Cloudflare D1/R2 path is green for the official Zotero v3 API tests
-that run: `451 passing`, `22 pending`, `0 failing`. The pending cases are
-upstream-skipped `schema` and `tts` tests, not current server failures. A real
-Zotero Desktop smoke also passes against the live Worker.
+See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for
+measured results and [`TODO.md`](TODO.md) for the remaining product work.
 
-See [compatibility/candidate-status.md](compatibility/candidate-status.md) for
-the live scoreboard and
-[compatibility/known-differences.md](compatibility/known-differences.md) for
-deliberate deviations.
+## Install
 
-```bash
-# install and run local Worker dev
-cd server && bun install && bun run dev
-
-# deploy Cloudflare Worker after applying D1 migrations
-bun run deploy
-
-# smoke the real Zotero Desktop app against the configured endpoint
-bun run smoke:desktop
-```
-
-"Zotero" is a registered trademark of the Corporation for Digital
-Scholarship; this project is an independent, compatible implementation and is
-not affiliated with or endorsed by them.
-
-## Self-Host Model
-
-This is a single-owner deployment model: each deployer runs their own Worker,
-D1 database, R2 bucket, root admin credentials, and API keys. There is no
-central account system and no signup service controlled by this repo.
-
-After deployment, clients need two values:
-
-- The deployed API base URL, for example the generated `workers.dev` URL or the
-  deployer's custom domain.
-- A self-host API key created on that deployment, for example with root admin
-  credentials:
+The package exposes one `zotero-selfhost` executable. Once
+`zotero-selfhost-server` is published, any common package runner can invoke the
+same CLI:
 
 ```bash
-curl -u "$ROOT_USERNAME:$ROOT_PASSWORD" \
-  -X POST "$SELFHOST_URL/users/1/keys" \
-  -H "content-type: application/json" \
-  -d '{"name":"Desktop","access":{"user":{"library":true,"write":true,"files":true,"notes":true},"groups":{"all":{"library":true,"write":true}}}}'
+npx zotero-selfhost-server setup
+bunx zotero-selfhost-server setup
+pnpx zotero-selfhost-server setup
+yarn dlx zotero-selfhost-server setup
 ```
 
-Zotero.org API keys are separate import credentials. They can copy data from
-Zotero.org into a self-hosted deployment, but they do not authenticate clients
-to this server.
+From a repository checkout today:
+
+```bash
+cd server
+bun install
+bun run cli -- setup
+```
+
+`setup` authenticates with Wrangler, creates or reuses the final D1/R2
+resources, applies migrations, deploys the Worker and streaming Durable Object,
+generates the file-URL signing secret, and returns the first owner API key. The
+CLI does not save the API key.
+
+For a Worker created with the Deploy to Cloudflare button:
+
+```bash
+npx zotero-selfhost-server setup --existing \
+  --url https://your-worker.example.workers.dev
+```
+
+The source repository must be public before unrelated Cloudflare users can use
+the deploy button.
+
+## Recovery
+
+Client API keys are replaceable credentials; they are not the recovery root.
+If every owner key is lost, authenticate through the owning Cloudflare account:
+
+```bash
+npx zotero-selfhost-server recover
+```
+
+The CLI installs a temporary recovery secret, creates a replacement owner key,
+and removes the secret. D1 and R2 are not reset. There is no permanent root
+username or password.
+
+## Storage And Sync
+
+- D1 stores users, keys, library versions, metadata, deletions, full-text state,
+  groups, collections, and attachment records.
+- R2 stores attachment bytes.
+- `ZoteroStreamHub` holds live WebSocket subscriptions only. A committed
+  library mutation produces `topicUpdated`; clients then use their normal HTTP
+  sync path to fetch data.
+- A Zotero.org API key is an optional one-time importer input. It is not a
+  credential for this server and is never a Worker secret.
+
+Zotero Desktop can be pointed at a custom API server. The stock Zotero mobile
+apps currently require an upstream change or a fork to use a custom API base;
+a future application can use this server's HTTP and streaming protocols.
+
+## Development And Compatibility
+
+```bash
+cd server
+
+# Production-shaped local Worker: destructive test administration is absent
+bun run dev
+
+# Isolated compatibility Worker/resources for the official oracle and smoke
+bun run dev:compatibility
+
+# Format/lint, generated binding types, TypeScript, workerd tests, package test
+bun run check
+
+# Materialize and run the independently pinned upstream test oracle
+bun run compat:setup
+bun run test:oracle:smoke
+```
+
+The production Worker returns `404` for `/test/*`. The compatibility
+configuration uses separate Worker, D1, and R2 names and requires an explicit
+test administrator token.
+
+## Documentation
+
+- [Server package and command reference](server/README.md)
+- [Cloudflare production and migration runbook](docs/cloudflare-production-runbook.md)
+- [Compatibility harness](compatibility/README.md)
+- [Known differences](compatibility/known-differences.md)
+- [Project shape](docs/zotero-selfhost-understanding.md)
 
 ## License
 
-MIT. This applies to this project's original server code and documentation, not
-to Zotero's own source code or trademarks.
-
-## Key Docs
-
-- [Deployable server package](server/README.md)
-- [Cloudflare production runbook](docs/cloudflare-production-runbook.md)
-- [Compatibility status](compatibility/candidate-status.md)
-- [Compatibility maintenance harness](compatibility/README.md)
-- [Project-shape note](docs/zotero-selfhost-understanding.md)
-- [Active TODO](TODO.md)
-
-## Maintenance References
-
-Third-party reference repositories are not committed. The tracked oracle lock
-pins Zotero's exact `dataserver` commit and schema digest; `cd server && bun run
-compat:setup` materializes the ignored checkout reproducibly. See
-[compatibility/README.md](compatibility/README.md).
+MIT for this project's original code and documentation. Third-party test
+oracles and dependencies retain their own licenses.

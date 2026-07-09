@@ -1,4 +1,8 @@
-import { getRequestApiKey, isRootRequest } from "../../../domain/auth";
+import {
+  getRequestApiKey,
+  isAdminRequest,
+  isCompatibilityTestMode,
+} from "../../../domain/auth";
 import {
   createKeyStore,
   managedKeyInfo,
@@ -11,7 +15,7 @@ import {
   keyAccessNotificationHeaders,
   parseNumericID,
   readKeyRequestBody,
-  requireKeyRoot,
+  requireKeyAdmin,
 } from "../support";
 
 compatibility.get("/keys/current", async (c) => {
@@ -25,7 +29,9 @@ compatibility.get("/keys/current", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
+  return c.json(
+    (await isAdminRequest(c)) ? managedKeyInfo(key) : publicKeyInfo(key)
+  );
 });
 
 compatibility.get("/users/:userID/keys/current", async (c) => {
@@ -44,7 +50,9 @@ compatibility.get("/users/:userID/keys/current", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
+  return c.json(
+    (await isAdminRequest(c)) ? managedKeyInfo(key) : publicKeyInfo(key)
+  );
 });
 
 compatibility.post("/keys/sessions", async (c) => {
@@ -85,9 +93,9 @@ compatibility.delete("/keys/sessions/:sessionToken", async (c) => {
 });
 
 compatibility.get("/keys/sessions/:sessionToken/info", async (c) => {
-  const rootError = requireKeyRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireKeyAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const info = await createKeyStore(c.env).getSessionInfo(
@@ -101,9 +109,9 @@ compatibility.get("/keys/sessions/:sessionToken/info", async (c) => {
 });
 
 compatibility.post("/keys/sessions/complete", async (c) => {
-  const rootError = requireKeyRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireKeyAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const result = await createKeyStore(c.env).completeSession(
@@ -128,7 +136,9 @@ compatibility.get("/keys/:apiKey", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
+  return c.json(
+    (await isAdminRequest(c)) ? managedKeyInfo(key) : publicKeyInfo(key)
+  );
 });
 
 compatibility.get("/users/:userID/keys/:apiKey", async (c) => {
@@ -142,13 +152,15 @@ compatibility.get("/users/:userID/keys/:apiKey", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
+  return c.json(
+    (await isAdminRequest(c)) ? managedKeyInfo(key) : publicKeyInfo(key)
+  );
 });
 
 compatibility.get("/users/:userID/keys", async (c) => {
-  const rootError = requireKeyRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireKeyAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));
@@ -161,9 +173,9 @@ compatibility.get("/users/:userID/keys", async (c) => {
 });
 
 compatibility.post("/users/:userID/keys", async (c) => {
-  const rootError = requireKeyRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireKeyAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));
@@ -182,6 +194,10 @@ compatibility.post("/users/:userID/keys", async (c) => {
 });
 
 compatibility.post("/keys", async (c) => {
+  if (!isCompatibilityTestMode(c.env)) {
+    return c.text("Password login is not enabled", 404);
+  }
+
   const body = await readKeyRequestBody(c);
   const keyStore = createKeyStore(c.env);
   const userID = await keyStore.resolveCredentials(body);
@@ -207,10 +223,13 @@ compatibility.put("/keys/:apiKey", async (c) => {
   }
 
   const body = await readKeyRequestBody(c);
-  const credentialUserID = await keyStore.resolveCredentials(body);
+  const credentialUserID = isCompatibilityTestMode(c.env)
+    ? await keyStore.resolveCredentials(body)
+    : null;
   const requestApiKey = getRequestApiKey(c);
+  const isAdmin = await isAdminRequest(c);
   if (
-    !isRootRequest(c) &&
+    !isAdmin &&
     requestApiKey !== apiKey &&
     credentialUserID !== existing.userID
   ) {
@@ -237,9 +256,9 @@ compatibility.put("/keys/:apiKey", async (c) => {
 });
 
 compatibility.put("/users/:userID/keys/:apiKey", async (c) => {
-  const rootError = requireKeyRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireKeyAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));
@@ -305,7 +324,7 @@ compatibility.delete("/users/:userID/keys/current", async (c) => {
 compatibility.delete("/keys/:apiKey", async (c) => {
   const apiKey = c.req.param("apiKey");
   const requestApiKey = getRequestApiKey(c);
-  if (!(isRootRequest(c) || requestApiKey === apiKey)) {
+  if (!((await isAdminRequest(c)) || requestApiKey === apiKey)) {
     return c.text("Invalid key", 403);
   }
 

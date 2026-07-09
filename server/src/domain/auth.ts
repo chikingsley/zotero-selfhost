@@ -1,22 +1,57 @@
 import type { Context } from "hono";
 import type { Bindings } from "../bindings";
+import { createKeyStore } from "./keys";
+
+const compatibilityAdminUsername = "compatibility";
 
 const decodeBasicAuth = (authorization: string): [string, string] | null => {
   if (!authorization.toLowerCase().startsWith("basic ")) {
     return null;
   }
 
-  const encoded = authorization.slice("basic ".length).trim();
-  const decoded = atob(encoded);
-  const separator = decoded.indexOf(":");
-  if (separator === -1) {
+  try {
+    const encoded = authorization.slice("basic ".length).trim();
+    const decoded = atob(encoded);
+    const separator = decoded.indexOf(":");
+    if (separator === -1) {
+      return null;
+    }
+
+    return [decoded.slice(0, separator), decoded.slice(separator + 1)];
+  } catch {
     return null;
   }
-
-  return [decoded.slice(0, separator), decoded.slice(separator + 1)];
 };
 
-export const isRootRequest = (c: Context<{ Bindings: Bindings }>): boolean => {
+export const isCompatibilityTestMode = (env: Bindings): boolean =>
+  env.DEPLOYMENT_MODE === "compatibility-test";
+
+export const verifySecret = async (
+  provided: string,
+  expected: string
+): Promise<boolean> => {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+
+  return crypto.subtle.timingSafeEqual(providedHash, expectedHash);
+};
+
+export const isCompatibilityTestAdminRequest = async (
+  c: Context<{ Bindings: Bindings }>
+): Promise<boolean> => {
+  const expected = c.env.COMPATIBILITY_TEST_ADMIN_TOKEN;
+  if (!(isCompatibilityTestMode(c.env) && expected)) {
+    return false;
+  }
+
+  const headerToken = c.req.header("X-Selfhost-Test-Token");
+  if (headerToken) {
+    return verifySecret(headerToken, expected);
+  }
+
   const authorization = c.req.header("Authorization");
   if (!authorization) {
     return false;
@@ -28,9 +63,26 @@ export const isRootRequest = (c: Context<{ Bindings: Bindings }>): boolean => {
   }
 
   const [username, password] = credentials;
-  const expectedUsername = c.env.ROOT_USERNAME ?? "root";
-  const expectedPassword = c.env.ROOT_PASSWORD ?? "local-root-password";
-  return username === expectedUsername && password === expectedPassword;
+  return (
+    username === compatibilityAdminUsername &&
+    (await verifySecret(password, expected))
+  );
+};
+
+export const isAdminRequest = async (
+  c: Context<{ Bindings: Bindings }>
+): Promise<boolean> => {
+  if (await isCompatibilityTestAdminRequest(c)) {
+    return true;
+  }
+
+  const apiKey = getRequestApiKey(c);
+  if (!apiKey) {
+    return false;
+  }
+
+  const key = await createKeyStore(c.env).getKey(apiKey);
+  return key?.isOwner === true;
 };
 
 export const getRequestApiKey = (
@@ -52,4 +104,13 @@ export const getRequestApiKey = (
   }
 
   return null;
+};
+
+export const getBearerToken = (
+  c: Context<{ Bindings: Bindings }>
+): string | null => {
+  const authorization = c.req.header("Authorization");
+  return authorization?.toLowerCase().startsWith("bearer ")
+    ? authorization.slice("bearer ".length).trim()
+    : null;
 };

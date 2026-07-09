@@ -1,13 +1,39 @@
 {
   "name": "zotero-selfhost-server",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Zotero-compatible self-hosted sync server for Cloudflare Workers, D1, R2, and Durable Objects",
   "license": "MIT",
   "type": "module",
   "module": "src/index.ts",
+  "bin": {
+    "zotero-selfhost": "cli/zotero-selfhost.mjs"
+  },
+  "bundledDependencies": [
+    "bsdiff-wasm"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "cli",
+    "migrations",
+    "patches",
+    "scripts/package-manifest.mjs",
+    "src",
+    "biome.jsonc",
+    "tsconfig.json",
+    "wrangler.compatibility.jsonc",
+    "wrangler.jsonc"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "cli": "node cli/zotero-selfhost.mjs",
     "dev": "bun run db:migrations:apply:local && wrangler dev",
+    "dev:compatibility": "mkdir -p .wrangler/compatibility && CI=1 wrangler d1 migrations apply DB --local --cwd .wrangler/compatibility --config ../../wrangler.compatibility.jsonc && wrangler dev --cwd .wrangler/compatibility --config ../../wrangler.compatibility.jsonc",
     "deploy": "bun run db:migrations:apply && wrangler deploy",
+    "deploy:compatibility": "wrangler d1 migrations apply DB --remote --config wrangler.compatibility.jsonc && wrangler deploy --config wrangler.compatibility.jsonc",
     "deploy:worker": "wrangler deploy",
     "deploy:dry-run": "wrangler deploy --dry-run",
     "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
@@ -20,20 +46,24 @@
     "compat:status": "bun ../compatibility/oracle.ts status",
     "compat:update": "bun ../compatibility/oracle.ts update",
     "smoke:desktop": "bun scripts/desktop-smoke.ts",
+    "prepack": "node scripts/package-manifest.mjs prepack",
+    "postpack": "node scripts/package-manifest.mjs postpack",
     "typecheck": "bun run cf:types && tsc --noEmit",
     "typecheck:compat": "tsc --ignoreConfig --noEmit --strict --target ESNext --module Preserve --moduleResolution bundler --types bun,node ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts",
     "test": "bun run test:runtime",
-    "test:runtime": "vitest run",
+    "test:runtime": "FILE_URL_SIGNING_SECRET=runtime-file-url-signing-secret vitest run",
     "test:oracle:smoke": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 general,version",
     "test:oracle": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 -t 240000",
-    "test:watch": "vitest",
-    "check": "ultracite check && biome check --config-path biome.jsonc ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts && bun run typecheck && bun run typecheck:compat && bun run test:runtime",
+    "test:package": "node cli/zotero-selfhost.mjs --help && npm pack --dry-run --json >/dev/null",
+    "test:watch": "FILE_URL_SIGNING_SECRET=runtime-file-url-signing-secret vitest",
+    "check": "ultracite check && biome check --config-path biome.jsonc ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts && bun run typecheck && bun run typecheck:compat && bun run test:runtime && bun run test:package",
     "fix": "ultracite fix"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.4.0",
     "bsdiff-wasm": "^0.1.4",
     "hono": "^4.12.28",
+    "wrangler": "^4.110.0",
     "xdelta3-wasm": "^1.0.0",
     "zod": "^4.4.3"
   },
@@ -44,8 +74,7 @@
     "@types/node": "^26.1.1",
     "typescript": "^7.0.2",
     "ultracite": "7.9.3",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.110.0"
+    "vitest": "^4.1.10"
   },
   "cloudflare": {
     "bindings": {
@@ -55,20 +84,8 @@
       "DB": {
         "description": "D1 database for Zotero metadata, sync versions, API keys, groups, settings, full-text index state, and file metadata."
       },
-      "RAW_FILE_URL_SECRET": {
-        "description": "Optional secret used to sign raw file-view URLs. Generate with `openssl rand -hex 32`."
-      },
-      "ROOT_PASSWORD": {
-        "description": "Admin password for compatibility setup/admin routes. Generate a unique random value; do not reuse your Zotero.org password."
-      },
-      "ROOT_USERNAME": {
-        "description": "Admin username for compatibility setup/admin routes. `root` is fine for single-owner deployments when paired with a strong password."
-      },
-      "SELFHOST_TEST_API_KEY": {
-        "description": "Initial API key used by the compatibility harness and disposable Zotero Desktop smoke. Generate a unique random value."
-      },
-      "TTS_TEST_KEY": {
-        "description": "Optional key for exercising the TTS compatibility stub. Leave blank unless you intentionally run the TTS tests."
+      "FILE_URL_SIGNING_SECRET": {
+        "description": "Server-only secret for short-lived attachment URLs. The setup CLI generates and uploads it automatically."
       }
     }
   },

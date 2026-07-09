@@ -1,62 +1,46 @@
-# Zotero Self-Host Understanding
+# Zotero Self-Host Project Shape
 
-This is the short project-shape note after the compatibility work moved from
-research into a working Cloudflare server.
+## Product Boundary
 
-## What This Project Is
+`server/` is a Zotero-compatible sync authority on Cloudflare:
 
-This repo now has one primary product:
+- Worker HTTP API and authentication;
+- D1 metadata, versions, users, keys, and sync state;
+- R2 attachment bytes;
+- hibernating Durable Object WebSocket notifications;
+- setup/recovery CLI;
+- Workers-runtime characterization tests.
 
-- `server/`: a Cloudflare Workers/D1/R2 implementation of the Zotero API v3
-  surface, validated against Zotero's official remote API tests and a real
-  Zotero Desktop smoke.
+It is not Zotero's PHP dataserver, the Zotero Web Library, or a transparent
+ongoing mirror of Zotero.org. Zotero.org becomes an optional one-time migration
+source. After cutover, the self-hosted server is authoritative.
 
-The current measured baseline is in `compatibility/candidate-status.md`.
+## Permanent Maintenance Surfaces
 
-## What This Project Is Not
+- `server/`: product package, CLI, migrations, Worker/DO code, and runtime tests.
+- `compatibility/`: pinned official black-box oracle, configs, and measured
+  status.
+- `docs/cloudflare-production-runbook.md`: deployment, recovery, backup, and
+  legacy-resource cutover.
+- `TODO.md`: unfinished product/release work.
+- `CHANGELOG.md`: completed implementation history.
 
-This is not a vendored copy of Zotero's official PHP `dataserver`, and it should
-not ship cloned reference repositories. Those references were useful for
-research and parity work, but they are local maintenance inputs, not product
-source.
+Ignored `references/` checkouts are reproducible maintenance inputs. They are
+not bundled or published.
 
-This is also not the official Zotero Web Library. Zotero Desktop can be pointed
-at this API; a browser UI would be a separate product layer.
+## Release Loop
 
-## Maintenance Inputs
+1. Run `cd server && bun run check`.
+2. Run the pinned official smoke against an isolated compatibility Worker.
+3. Run the complete oracle before compatibility milestones.
+4. Run disposable-profile and two-device Desktop tests.
+5. Exercise lost-key recovery.
+6. Back up D1/R2 before import or resource cutover.
+7. Report docs-only, locally implemented, deployed, migrated, and verified
+   states literally.
 
-When compatibility needs to be refreshed, clone the official Zotero dataserver
-test oracle locally under `references/dataserver/`. That folder is ignored by
-Git. The commands live in `compatibility/README.md`.
+## Next Product Layer
 
-The permanent maintenance surfaces are:
-
-- `server/`: product code, migrations, tests, Worker config.
-- `compatibility/`: official-test runner, configs, status, accepted
-  differences.
-- `docs/cloudflare-production-runbook.md`: deployment, backup, import, and
-  release notes.
-
-## Keeping It Current
-
-Use this loop when Zotero, Cloudflare, or dependencies move:
-
-1. Update package dependencies and check `bun outdated`.
-2. Refresh local Zotero official tests under ignored `references/dataserver/`.
-3. Run targeted compatibility slices locally with `bun run dev:memory`.
-4. Run the full official suite against the deployed Cloudflare D1/R2 path.
-5. Run `bun run smoke:desktop` against the target endpoint.
-6. Before risky migrations or imports, use D1 Time Travel/export and R2
-   S3-compatible backup tooling.
-
-## Product Direction
-
-The next product work is packaging, not API compatibility:
-
-- Public docs use the descriptive `Zotero Self-Host` name with an explicit
-  non-affiliation disclaimer.
-- Single-owner auth/onboarding: deployer-owned root credentials, local API
-  keys, no central account service.
-- Deploy to Cloudflare button pointed at the isolated `server/` package.
-- Optional importer from Zotero.org using a user-provided Zotero API key.
-- Optional web UI if this becomes more than a compatible sync server.
+The remaining critical work is importer/profile migration and multi-device
+acceptance testing. Code consolidation follows those safety nets so splitting
+the large compatibility modules cannot silently change Zotero behavior.

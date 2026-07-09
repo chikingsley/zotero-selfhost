@@ -2,7 +2,9 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { runtimeRequest } from "./runtime";
 
-const rootAuth = `Basic ${btoa("root:local-root-password")}`;
+const compatibilityAdminAuth = `Basic ${btoa(
+  "compatibility:runtime-test-admin-token"
+)}`;
 
 const request = runtimeRequest;
 
@@ -11,7 +13,7 @@ describe("Zotero compatibility bootstrap", () => {
     const response = await request("/test/setup?u=1&u2=2", {
       body: " ",
       headers: {
-        Authorization: rootAuth,
+        Authorization: compatibilityAdminAuth,
       },
       method: "POST",
     });
@@ -38,7 +40,7 @@ describe("Zotero compatibility bootstrap", () => {
     const setup = await request("/test/setup?u=1&u2=2", {
       body: " ",
       headers: {
-        Authorization: rootAuth,
+        Authorization: compatibilityAdminAuth,
       },
       method: "POST",
     });
@@ -49,7 +51,7 @@ describe("Zotero compatibility bootstrap", () => {
     const clear = await request("/users/1/clear", {
       body: "",
       headers: {
-        Authorization: rootAuth,
+        Authorization: compatibilityAdminAuth,
       },
       method: "POST",
     });
@@ -151,7 +153,7 @@ describe("Zotero compatibility bootstrap", () => {
   it("enforces key-write version preconditions in D1", async () => {
     const setup = await request("/test/setup?u=1&u2=2", {
       body: " ",
-      headers: { Authorization: rootAuth },
+      headers: { Authorization: compatibilityAdminAuth },
       method: "POST",
     });
     const setupBody = (await setup.json()) as {

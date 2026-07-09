@@ -14,6 +14,7 @@ describe("Workers runtime bindings", () => {
         "attachment_files",
         "d1_migrations",
         "fulltext_index_states",
+        "installation_state",
         "items",
         "libraries",
         "users",
@@ -27,6 +28,7 @@ describe("Workers runtime bindings", () => {
       "0001_initial.sql",
       "0002_d1_item_audit_and_file_metadata.sql",
       "0003_fulltext_index_state.sql",
+      "0004_installation_owner_keys.sql",
     ]);
   });
 

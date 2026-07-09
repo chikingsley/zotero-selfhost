@@ -1,6 +1,20 @@
 
 ## Unreleased
 
+- Added final `zotero-selfhost` Worker/D1/R2 naming, explicit production versus
+  compatibility Wrangler configurations, and removed production root-password
+  and signing-secret fallbacks.
+- Added atomic one-time owner bootstrap, owner API-key authorization, existing-
+  deployment owner migration, and Cloudflare-authenticated temporary-token
+  recovery without resetting library data.
+- Added the publishable `zotero-selfhost` CLI with `setup` and `recover`
+  commands shared by npm, Bun, pnpm, and Yarn package runners.
+- Added Zotero-protocol streaming through the hibernating `ZoteroStreamHub`
+  Durable Object, including authenticated subscriptions and publication of
+  committed mutation notifications.
+- Added Workers-runtime coverage for bootstrap, recovery, owner-key
+  administration, and WebSocket event delivery, plus npm package dry-run
+  validation with the patched bsdiff runtime bundled for non-Bun installs.
 - Added Cloudflare Workers Vitest coverage with isolated D1/R2 bindings, real
   migrations, Worker entrypoint dispatch, sync-version characterization, and
   an attachment storage round trip.

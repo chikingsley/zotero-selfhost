@@ -34,8 +34,8 @@ const resultPath = join(tmpRoot, "result.json");
 const scriptPath = join(tmpRoot, "desktop-smoke.js");
 const sourcePath = join(tmpRoot, "source.txt");
 
-const rootUsername = process.env.ROOT_USERNAME ?? "root";
-const rootPassword = process.env.ROOT_PASSWORD ?? "local-root-password";
+const compatibilityTestAdminToken =
+  process.env.COMPATIBILITY_TEST_ADMIN_TOKEN ?? "runtime-test-admin-token";
 
 await main();
 
@@ -155,9 +155,9 @@ async function writeDesktopSmokeScript() {
 }
 
 async function setupRemoteTestUser() {
-  const credentials = Buffer.from(`${rootUsername}:${rootPassword}`).toString(
-    "base64"
-  );
+  const credentials = Buffer.from(
+    `compatibility:${compatibilityTestAdminToken}`
+  ).toString("base64");
   const response = await fetch(`${baseURL}/test/setup?u=1&u2=2`, {
     headers: {
       Authorization: `Basic ${credentials}`,

@@ -37,6 +37,7 @@ This file tracks accepted differences and harness caveats, not open failures.
   adds a real speech provider.
 - **Web translation**: local compatibility behavior for the official tests; a
   production translation feature would need a real translation service decision.
-- **Notifications**: API-compatible notification headers are implemented for
-  the official tests. A separate realtime/SNS-style fan-out service is not part
-  of the current server product.
+- **Notifications**: API-compatible notification headers are also published to
+  authenticated WebSocket subscribers by the hibernating `ZoteroStreamHub`
+  Durable Object. Multi-device and eviction/reconnect acceptance tests remain a
+  release gate; streaming does not replace the standard HTTP sync process.

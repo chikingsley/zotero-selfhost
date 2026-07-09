@@ -4,7 +4,7 @@
   // several Hono route-registration modules in this project.
   "extends": ["ultracite/biome/core", "ultracite/biome/vitest"],
   "javascript": {
-    "globals": ["Bun"]
+    "globals": ["Bun", "WebSocketPair"]
   },
   "linter": {
     "rules": {

@@ -1,24 +1,19 @@
 import { createFullTextStore } from "../../../domain/fulltext";
 import { createCompatibilityStore } from "../../../domain/storage";
-import { registerUserIdentity } from "../../../domain/user-identity";
 import { generateZoteroKey } from "../../../domain/zotero";
 import { compatibility } from "../router";
-import { requireRoot } from "../support";
+import { requireCompatibilityTestAdmin } from "../support";
 
 compatibility.post("/test/setup", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireCompatibilityTestAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = Number.parseInt(c.req.query("u") ?? "1", 10);
   const userID2 = Number.parseInt(c.req.query("u2") ?? "2", 10);
-  // Identities from the official test config (config/default.json):
-  // library envelopes report these as displayName / URL slug.
-  registerUserIdentity(userID, "phpunit", "Real Name");
-  registerUserIdentity(userID2, "phpunit2", "Real Name 2");
   const user1Key =
-    c.env.SELFHOST_TEST_API_KEY || generateZoteroKey().toLowerCase();
+    c.env.COMPATIBILITY_TEST_API_KEY || generateZoteroKey().toLowerCase();
   const user2Key = generateZoteroKey().toLowerCase();
   const store = createCompatibilityStore(c.env);
 
@@ -28,9 +23,9 @@ compatibility.post("/test/setup", async (c) => {
 });
 
 compatibility.get("/test/fulltext-state", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireCompatibilityTestAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const { libraryID, libraryType } = readFullTextStateTarget({
@@ -43,9 +38,9 @@ compatibility.get("/test/fulltext-state", async (c) => {
 });
 
 compatibility.post("/test/fulltext-state", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireCompatibilityTestAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const body = await c.req.json().catch(() => ({}));

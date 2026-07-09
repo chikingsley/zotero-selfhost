@@ -1010,6 +1010,7 @@ class D1CompatibilityStore implements CompatibilityStore {
       this.db.prepare("DELETE FROM group_members"),
       this.db.prepare("DELETE FROM groups"),
       this.db.prepare("DELETE FROM login_sessions"),
+      this.db.prepare("DELETE FROM installation_state"),
       this.db.prepare("DELETE FROM api_keys"),
       this.db.prepare("DELETE FROM storage_accounts"),
       this.db.prepare("DELETE FROM libraries"),

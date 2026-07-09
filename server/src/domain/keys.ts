@@ -1,5 +1,6 @@
 import type { Bindings } from "../bindings";
-import { getUserIdentity } from "./user-identity";
+import { randomString } from "../lib/random";
+import { getDefaultUserIdentity } from "./user-identity";
 
 export type Access = Record<string, unknown>;
 
@@ -8,6 +9,7 @@ export interface KeyInfo {
   dateAdded?: string;
   displayName: string;
   id?: string;
+  isOwner?: boolean;
   key: string;
   lastUsed?: string;
   name?: string;
@@ -31,7 +33,7 @@ export interface LoginSessionStatus {
   username?: string;
 }
 
-interface KeyStore {
+export interface KeyStore {
   cancelSession: (
     sessionToken: string
   ) => Promise<"cancelled" | "conflict" | "missing">;
@@ -42,6 +44,7 @@ interface KeyStore {
   }) => Promise<"completed" | "conflict" | "invalid" | "missing">;
   createKey: (input: {
     access?: unknown;
+    isOwner?: boolean;
     name?: unknown;
     userID: number;
   }) => Promise<KeyInfo>;
@@ -78,8 +81,9 @@ export const publicKeyInfo = (key: KeyInfo): KeyInfo => ({
 });
 
 export const managedKeyInfo = (key: KeyInfo): KeyInfo => {
+  const { isOwner: _isOwner, ...compatibilityKey } = key;
   const info: KeyInfo = {
-    ...key,
+    ...compatibilityKey,
     dateAdded: key.dateAdded ?? new Date().toISOString(),
     recentIPs: key.lastUsed ? [] : key.recentIPs,
   };
@@ -233,6 +237,7 @@ class D1KeyStore implements KeyStore {
 
   async createKey(input: {
     access?: unknown;
+    isOwner?: boolean;
     name?: unknown;
     userID: number;
   }): Promise<KeyInfo> {
@@ -242,10 +247,16 @@ class D1KeyStore implements KeyStore {
     const name = normalizeName(input.name);
     await this.db
       .prepare(
-        `INSERT INTO api_keys (api_key, user_id, label, scopes_json)
-         VALUES (?, ?, ?, ?)`
+        `INSERT INTO api_keys (api_key, user_id, label, scopes_json, is_owner)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .bind(key, input.userID, name, JSON.stringify(access))
+      .bind(
+        key,
+        input.userID,
+        name,
+        JSON.stringify(access),
+        input.isOwner ? 1 : 0
+      )
       .run();
 
     const info = await this.getKey(key);
@@ -305,7 +316,7 @@ class D1KeyStore implements KeyStore {
   async getKey(apiKey: string): Promise<KeyInfo | null> {
     const row = await this.db
       .prepare(
-        `SELECT api_keys.api_key, api_keys.user_id, api_keys.label, api_keys.scopes_json,
+        `SELECT api_keys.api_key, api_keys.user_id, api_keys.label, api_keys.scopes_json, api_keys.is_owner,
                 api_keys.created_at, api_keys.last_used_at, users.username, users.display_name
          FROM api_keys
          LEFT JOIN users ON users.user_id = api_keys.user_id
@@ -352,7 +363,7 @@ class D1KeyStore implements KeyStore {
     await this.ensureUser(userID);
     const rows = await this.db
       .prepare(
-        `SELECT api_keys.api_key, api_keys.user_id, api_keys.label, api_keys.scopes_json,
+        `SELECT api_keys.api_key, api_keys.user_id, api_keys.label, api_keys.scopes_json, api_keys.is_owner,
                 api_keys.created_at, api_keys.last_used_at, users.username, users.display_name
          FROM api_keys
          LEFT JOIN users ON users.user_id = api_keys.user_id
@@ -455,6 +466,7 @@ interface KeyRow {
   api_key: string;
   created_at: string;
   display_name: string | null;
+  is_owner: number;
   label: string | null;
   last_used_at: string | null;
   scopes_json: string | null;
@@ -476,6 +488,7 @@ const rowToKeyInfo = (row: KeyRow): KeyInfo => ({
   dateAdded: row.created_at,
   displayName: row.display_name ?? getDisplayName(row.user_id),
   id: row.api_key,
+  isOwner: row.is_owner === 1,
   key: row.api_key,
   lastUsed: row.last_used_at ?? undefined,
   name: row.label ?? undefined,
@@ -485,7 +498,7 @@ const rowToKeyInfo = (row: KeyRow): KeyInfo => ({
 
 const normalizeAccess = (access: unknown): Access => {
   if (!isPlainObject(access)) {
-    return defaultAccess();
+    return defaultKeyAccess();
   }
 
   const normalized: Access = { ...access };
@@ -502,7 +515,7 @@ const normalizeAccess = (access: unknown): Access => {
   return normalized;
 };
 
-const defaultAccess = (): Access => ({
+export const defaultKeyAccess = (): Access => ({
   groups: {
     all: {
       library: true,
@@ -519,13 +532,13 @@ const defaultAccess = (): Access => ({
 
 const parseAccess = (value: string | null): Access => {
   if (!value) {
-    return defaultAccess();
+    return defaultKeyAccess();
   }
 
   try {
     return normalizeAccess(JSON.parse(value));
   } catch {
-    return defaultAccess();
+    return defaultKeyAccess();
   }
 };
 
@@ -535,13 +548,10 @@ const parseNullableAccess = (value: string | null): Access | null =>
 const normalizeName = (name: unknown): string | undefined =>
   typeof name === "string" && name.length > 0 ? name : undefined;
 
-const generateApiKey = (): string => {
+export const generateApiKey = (): string => {
   const alphabet =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-
-  return [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+  return randomString(alphabet, 24);
 };
 
 const generateSessionToken = (): string => {
@@ -580,8 +590,9 @@ const parsePositiveInteger = (value: unknown): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
-const getUsername = (userID: number) => getUserIdentity(userID).username;
-const getDisplayName = (userID: number) => getUserIdentity(userID).displayName;
+const getUsername = (userID: number) => getDefaultUserIdentity(userID).username;
+const getDisplayName = (userID: number) =>
+  getDefaultUserIdentity(userID).displayName;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

@@ -2,13 +2,15 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { runtimeRequest } from "./runtime";
 
-const rootAuth = `Basic ${btoa("root:local-root-password")}`;
+const compatibilityAdminAuth = `Basic ${btoa(
+  "compatibility:runtime-test-admin-token"
+)}`;
 
 describe("attachment storage through the Worker runtime", () => {
   it("persists file metadata in D1 and bytes in R2", async () => {
     const setup = await runtimeRequest("/test/setup?u=1&u2=2", {
       body: " ",
-      headers: { Authorization: rootAuth },
+      headers: { Authorization: compatibilityAdminAuth },
       method: "POST",
     });
     const setupBody = (await setup.json()) as {

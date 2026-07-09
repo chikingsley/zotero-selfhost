@@ -27,8 +27,8 @@ import {
   renderGroupUsersXML,
   renderStorageAdminXML,
   renderUserGroupsAtom,
+  requireAdmin,
   requireGroup,
-  requireRoot,
 } from "../support";
 
 compatibility.get("/users/:userID/groups", async (c) => {
@@ -87,9 +87,9 @@ compatibility.get("/users/:userID/groups", async (c) => {
 });
 
 compatibility.get("/groups", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const store = createCompatibilityStore(c.env);
@@ -168,9 +168,9 @@ compatibility.get("/groups/:groupID", getGroup);
 compatibility.get("/groups/:groupID/", getGroup);
 
 compatibility.put("/groups/:groupID", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -193,9 +193,9 @@ compatibility.put("/groups/:groupID", async (c) => {
 });
 
 compatibility.get("/users/:userID/storageadmin", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));
@@ -213,9 +213,9 @@ compatibility.get("/users/:userID/storageadmin", async (c) => {
 });
 
 compatibility.post("/users/:userID/storageadmin", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));
@@ -270,9 +270,9 @@ compatibility.post("/users/:userID/storageadmin", async (c) => {
 });
 
 compatibility.post("/groups", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const data = parseGroupXML(await c.req.text());
@@ -315,9 +315,9 @@ compatibility.post("/groups", async (c) => {
 });
 
 compatibility.post("/groups/:groupID/users", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -352,9 +352,9 @@ compatibility.post("/groups/:groupID/users", async (c) => {
 });
 
 compatibility.get("/groups/:groupID/users", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -370,9 +370,9 @@ compatibility.get("/groups/:groupID/users", async (c) => {
 });
 
 compatibility.put("/groups/:groupID/users/:userID", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -418,9 +418,9 @@ compatibility.put("/groups/:groupID/users/:userID", async (c) => {
 });
 
 compatibility.delete("/groups/:groupID/users/:userID", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -441,9 +441,9 @@ compatibility.delete("/groups/:groupID/users/:userID", async (c) => {
 });
 
 compatibility.delete("/groups/:groupID", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -458,9 +458,9 @@ compatibility.delete("/groups/:groupID", async (c) => {
 });
 
 compatibility.post("/groups/:groupID/clear", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -476,9 +476,9 @@ compatibility.post("/groups/:groupID/clear", async (c) => {
 });
 
 compatibility.post("/users/:userID/clear", async (c) => {
-  const rootError = requireRoot(c);
-  if (rootError) {
-    return rootError;
+  const adminError = await requireAdmin(c);
+  if (adminError) {
+    return adminError;
   }
 
   const userID = parseNumericID(c.req.param("userID"));

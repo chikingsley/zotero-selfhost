@@ -20,6 +20,7 @@ coverage
 .wrangler
 *.tsbuildinfo
 *.log
+server/.package.json.prepack
 
 # macOS
 .DS_Store

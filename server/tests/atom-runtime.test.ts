@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { runtimeRequest } from "./runtime";
 
-const rootAuth = `Basic ${btoa("root:local-root-password")}`;
+const compatibilityAdminAuth = `Basic ${btoa(
+  "compatibility:runtime-test-admin-token"
+)}`;
 
 describe("Atom rendering through the Worker runtime", () => {
   it("preserves Zotero's JSON field order in multi-content entries", async () => {
     const setup = await runtimeRequest("/test/setup?u=1&u2=2", {
       body: " ",
-      headers: { Authorization: rootAuth },
+      headers: { Authorization: compatibilityAdminAuth },
       method: "POST",
     });
     const setupBody = (await setup.json()) as {

@@ -1,7 +1,13 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Bindings } from "../../../bindings";
-import { getRequestApiKey, isRootRequest } from "../../../domain/auth";
+import {
+  getRequestApiKey,
+  isAdminRequest,
+  isCompatibilityTestAdminRequest,
+  isCompatibilityTestMode,
+  verifySecret,
+} from "../../../domain/auth";
 import { createCollectionStore } from "../../../domain/collections";
 import { recordDeletedObjects } from "../../../domain/deleted";
 import {
@@ -74,9 +80,22 @@ export const parseNumericID = (value: string): number | null => {
   return Number.parseInt(value, 10);
 };
 
-export const requireRoot = (c: Context<{ Bindings: Bindings }>) => {
-  if (!isRootRequest(c)) {
+export const requireAdmin = async (c: Context<{ Bindings: Bindings }>) => {
+  if (!(await isAdminRequest(c))) {
     return c.text("Invalid login", 401);
+  }
+
+  return null;
+};
+
+export const requireCompatibilityTestAdmin = async (
+  c: Context<{ Bindings: Bindings }>
+) => {
+  if (!isCompatibilityTestMode(c.env)) {
+    return c.text("Not Found", 404);
+  }
+  if (!(await isCompatibilityTestAdminRequest(c))) {
+    return c.text("Invalid test administrator token", 401);
   }
 
   return null;
@@ -87,8 +106,8 @@ export const requireUser = async (
   _store: CompatibilityStore,
   userID: number
 ): Promise<boolean> => {
-  // Root (Basic-auth admin) credentials can read any user library.
-  if (isRootRequest(c)) {
+  // The owner key can administer any library in its own deployment.
+  if (await isAdminRequest(c)) {
     return true;
   }
   const apiKey = getRequestApiKey(c);
@@ -365,7 +384,7 @@ export const signRawFileURLPayload = async (
 ): Promise<string> => {
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(getRawFileURLSecret(c)),
+    new TextEncoder().encode(getFileURLSigningSecret(c)),
     {
       hash: "SHA-256",
       name: "HMAC",
@@ -420,7 +439,7 @@ export const requireSignedRawFileURL = async (
   }
 
   const expected = await signRawFileURL(c, url.pathname, expires);
-  return timingSafeEqual(expected, signature);
+  return verifySecret(signature, expected);
 };
 
 export const signRawFileURL = async (
@@ -429,31 +448,14 @@ export const signRawFileURL = async (
   expires: number
 ): Promise<string> => signRawFileURLPayload(c, `${pathname}:${expires}`);
 
-export const getRawFileURLSecret = (
+export const getFileURLSigningSecret = (
   c: Context<{ Bindings: Bindings }>
-): string =>
-  c.env.RAW_FILE_URL_SECRET ??
-  c.env.ROOT_PASSWORD ??
-  c.env.SELFHOST_TEST_API_KEY ??
-  "local-dev-raw-file-secret";
+): string => c.env.FILE_URL_SIGNING_SECRET;
 
 export const arrayBufferToHex = (buffer: ArrayBuffer): string =>
   [...new Uint8Array(buffer)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
-
-export const timingSafeEqual = (left: string, right: string): boolean => {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  let difference = 0;
-  for (let index = 0; index < left.length; index += 1) {
-    difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
-  }
-
-  return difference === 0;
-};
 
 export const bytesPerMegabyte = 1024 * 1024;
 
@@ -582,7 +584,9 @@ export const requireTTSAccess = async (
 };
 
 export const getTTSTestKey = (c: Context<{ Bindings: Bindings }>) =>
-  c.env.TTS_TEST_KEY ?? c.env.SELFHOST_TEST_API_KEY ?? "local-tts-test-key";
+  c.env.TTS_TEST_KEY ??
+  c.env.COMPATIBILITY_TEST_API_KEY ??
+  "local-tts-test-key";
 
 export const getTTSAudioID = (voice: string, text: string) => {
   let hash = 0x81_1c_9d_c5;
@@ -1743,13 +1747,17 @@ export const buildWriteReport = (
   };
 };
 
-export const buildUserMetaBlock = (
+export const buildUserMetaBlock = async (
   c: Context<{ Bindings: Bindings }>,
   userID: number
-) => {
+): Promise<{
+  id: number;
+  links: { alternate: { href: string; type: string } };
+  name: string;
+  username: string;
+}> => {
   const origin = new URL(c.req.url).origin;
-  const identity = getUserIdentity(userID);
-
+  const identity = await getUserIdentity(c.env.DB, userID);
   return {
     id: userID,
     links: {
@@ -1763,7 +1771,7 @@ export const buildUserMetaBlock = (
   };
 };
 
-export const buildLibraryBlock = (
+export const buildLibraryBlock = async (
   c: Context<{ Bindings: Bindings }>,
   libraryType: "group" | "user",
   libraryID: number,
@@ -1771,7 +1779,7 @@ export const buildLibraryBlock = (
 ) => {
   const origin = new URL(c.req.url).origin;
   if (libraryType === "user") {
-    const identity = getUserIdentity(libraryID);
+    const identity = await getUserIdentity(c.env.DB, libraryID);
     return {
       id: libraryID,
       links: {
@@ -2336,16 +2344,19 @@ export const isFieldItemChange = (
       )
   );
 
+interface AttachItemMetaInput {
+  allItems: Array<{ data?: Record<string, unknown>; key: string }>;
+  groupName?: string;
+  libraryBlock?: Awaited<ReturnType<typeof buildLibraryBlock>>;
+  libraryID: number;
+  libraryType: "group" | "user";
+  store: CompatibilityStore;
+}
+
 export const attachItemMeta = async (
   c: Context<{ Bindings: Bindings }>,
   item: { data?: Record<string, unknown>; key: string; version?: number },
-  input: {
-    allItems: Array<{ data?: Record<string, unknown>; key: string }>;
-    groupName?: string;
-    libraryID: number;
-    libraryType: "group" | "user";
-    store: CompatibilityStore;
-  }
+  input: AttachItemMetaInput
 ) => {
   const meta: Record<string, unknown> = {
     ...((item as { meta?: Record<string, unknown> }).meta ?? {}),
@@ -2365,12 +2376,15 @@ export const attachItemMeta = async (
     }
   ).lastModifiedByUserID;
   if (input.libraryType === "group" && typeof createdByUserID === "number") {
-    meta.createdByUser = buildUserMetaBlock(c, createdByUserID);
+    meta.createdByUser = await buildUserMetaBlock(c, createdByUserID);
     if (
       typeof lastModifiedByUserID === "number" &&
       lastModifiedByUserID !== createdByUserID
     ) {
-      meta.lastModifiedByUser = buildUserMetaBlock(c, lastModifiedByUserID);
+      meta.lastModifiedByUser = await buildUserMetaBlock(
+        c,
+        lastModifiedByUserID
+      );
     } else {
       delete meta.lastModifiedByUser;
     }
@@ -2423,12 +2437,14 @@ export const attachItemMeta = async (
 
   return {
     ...item,
-    library: buildLibraryBlock(
-      c,
-      input.libraryType,
-      input.libraryID,
-      input.groupName
-    ),
+    library:
+      input.libraryBlock ??
+      (await buildLibraryBlock(
+        c,
+        input.libraryType,
+        input.libraryID,
+        input.groupName
+      )),
     links,
     meta,
   };
@@ -2441,14 +2457,18 @@ export const attachItemsMeta = async (
     key: string;
     version?: number;
   }>,
-  input: {
-    allItems: Array<{ data?: Record<string, unknown>; key: string }>;
-    groupName?: string;
-    libraryID: number;
-    libraryType: "group" | "user";
-    store: CompatibilityStore;
-  }
-) => Promise.all(items.map((item) => attachItemMeta(c, item, input)));
+  input: AttachItemMetaInput
+) => {
+  const libraryBlock = await buildLibraryBlock(
+    c,
+    input.libraryType,
+    input.libraryID,
+    input.groupName
+  );
+  return Promise.all(
+    items.map((item) => attachItemMeta(c, item, { ...input, libraryBlock }))
+  );
+};
 
 export const jsonValuesEqual = (left: unknown, right: unknown): boolean => {
   if (left === right) {
@@ -3998,8 +4018,8 @@ export const withPublicationLinks = (
 export const readKeyRequestBody = async (c: Context<{ Bindings: Bindings }>) =>
   c.req.json().catch(() => ({}));
 
-export const requireKeyRoot = (c: Context<{ Bindings: Bindings }>) =>
-  isRootRequest(c) ? null : c.text("Invalid key", 403);
+export const requireKeyAdmin = async (c: Context<{ Bindings: Bindings }>) =>
+  (await isAdminRequest(c)) ? null : c.text("Invalid key", 403);
 
 export const getLoginBaseURL = (c: Context<{ Bindings: Bindings }>) =>
   new URL(c.req.url).origin;

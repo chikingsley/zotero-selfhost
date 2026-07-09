@@ -2,8 +2,8 @@
   "apiURLPrefix": "http://127.0.0.1:8787/",
   "fullTextStateAPI": true,
   "libraryID": 0,
-  "rootPassword": "local-root-password",
-  "rootUsername": "root",
+  "rootPassword": "replace-with-COMPATIBILITY_TEST_ADMIN_TOKEN",
+  "rootUsername": "compatibility",
   "userID": 1,
   "userID2": 2,
   "verbose": 0

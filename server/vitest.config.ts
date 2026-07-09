@@ -10,10 +10,12 @@ export default defineConfig({
     cloudflareTest(async () => ({
       miniflare: {
         bindings: {
-          RAW_FILE_URL_SECRET: "runtime-test-raw-file-secret",
-          ROOT_PASSWORD: "local-root-password",
-          ROOT_USERNAME: "root",
-          SELFHOST_TEST_API_KEY: "testkey1",
+          BOOTSTRAP_TOKEN: "runtime-bootstrap-token",
+          COMPATIBILITY_TEST_ADMIN_TOKEN: "runtime-test-admin-token",
+          COMPATIBILITY_TEST_API_KEY: "testkey1",
+          DEPLOYMENT_MODE: "compatibility-test",
+          FILE_URL_SIGNING_SECRET: "runtime-file-url-signing-secret",
+          RECOVERY_TOKEN: "runtime-recovery-token",
           TEST_MIGRATIONS: await readD1Migrations(
             fileURLToPath(new URL("./migrations", import.meta.url))
           ),

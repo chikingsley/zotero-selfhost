@@ -60,7 +60,7 @@ candidate; local application-level D1/R2 behavior is covered by Workers Vitest.
 
 | Layer | Command | Purpose |
 | --- | --- | --- |
-| Workers runtime | `cd server && bun run test:runtime` | Fast tests inside `workerd` with isolated D1/R2 and real migrations. |
+| Workers runtime | `cd server && bun run test:runtime` | Fast tests inside `workerd` with isolated D1/R2/DO bindings and real migrations. |
 | Official Zotero oracle | `bun run test:oracle:smoke` / `bun run test:oracle` | Unmodified upstream black-box HTTP compatibility tests. |
 | Live client | `bun run smoke:desktop` | Real Zotero Desktop sync against the configured deployment. |
 
@@ -119,8 +119,8 @@ Examples:
 # One-time oracle setup
 cd server && bun run compat:setup
 
-# Terminal 1: local Worker with pending D1 migrations applied
-bun run dev
+# Terminal 1: explicitly isolated destructive compatibility Worker
+bun run dev:compatibility
 
 # Terminal 2: score it against Zotero's official tests
 bun run test:oracle:smoke
@@ -135,6 +135,11 @@ Create them from the corresponding `.example.json` files. Local config files
 are ignored because they can contain test credentials or local endpoints. The
 runner refuses to start if the checkout commit, dependencies, or schema differ
 from `oracle.lock.json`.
+
+The candidate config's upstream-owned `rootUsername`/`rootPassword` fields map
+to Basic username `compatibility` and `COMPATIBILITY_TEST_ADMIN_TOKEN`. They do
+not represent a production root account. Production uses owner API keys and
+returns `404` for `/test/*` administration.
 
 For the deployed Cloudflare D1/R2 candidate, use an ignored config such as
 `compatibility/config/candidate-cloudflare.local.json` with the live
