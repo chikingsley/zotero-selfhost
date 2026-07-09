@@ -1,8 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "zotero-compatible-server",
+  "name": "zotero",
   "main": "src/index.ts",
-  "compatibility_date": "2026-07-06",
+  "compatibility_date": "2026-07-08",
+  "compatibility_flags": ["nodejs_compat"],
   "base_dir": ".",
   "find_additional_modules": true,
   "preserve_file_names": true,
@@ -19,17 +20,21 @@
   "observability": {
     "enabled": true
   },
+  "secrets": {
+    "required": ["SELFHOST_TEST_API_KEY"]
+  },
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "zotero-compatible-server",
-      "database_id": "local-placeholder"
+      "database_name": "zotero",
+      "database_id": "812b7410-fd86-4e26-906a-0d960390fee6",
+      "migrations_dir": "migrations"
     }
   ],
   "r2_buckets": [
     {
       "binding": "ATTACHMENTS",
-      "bucket_name": "zotero-compatible-attachments"
+      "bucket_name": "zotero-attachments"
     }
   ]
 }

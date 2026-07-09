@@ -1,4 +1,48 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-  "extends": ["ultracite/biome/core", "ultracite/biome/vitest"]
+  // Keep @biomejs/biome at 2.5.2: 2.5.3 panics in its module resolver on
+  // several Hono route-registration modules in this project.
+  "extends": ["ultracite/biome/core", "ultracite/biome/vitest"],
+  "javascript": {
+    "globals": ["Bun"]
+  },
+  "linter": {
+    "rules": {
+      "complexity": {
+        // Compatibility handlers mirror Zotero's protocol branches. Refactor
+        // them incrementally with oracle coverage instead of to a score.
+        "noExcessiveCognitiveComplexity": "off"
+      },
+      "nursery": {
+        // Workers can terminate an isolate before untracked work completes.
+        "noFloatingPromises": "error"
+      },
+      "performance": {
+        // These loops are deliberately sequential (polling and ordered writes).
+        "noAwaitInLoops": "off",
+        // Payload shaping must remove properties rather than set undefined.
+        "noDelete": "off",
+        // This index is an ordered side-effect route registry, not a generic
+        // convenience re-export barrel.
+        "noBarrelFile": "off",
+        // Most expressions are request parsing paths, not hot inner loops.
+        "useTopLevelRegex": "off"
+      },
+      "style": {
+        // These are readability preferences, not correctness requirements.
+        "noNestedTernary": "off",
+        "noParameterProperties": "off",
+        "useDestructuring": "off"
+      },
+      "suspicious": {
+        // Required by MD5 and binary file parsing.
+        "noBitwiseOperators": "off",
+        // Runtime API payload guards remain necessary even when declared
+        // index signatures make Biome infer that values always exist.
+        "noUnnecessaryConditions": "off",
+        // Memory and D1 stores intentionally share Promise-based interfaces.
+        "useAwait": "off"
+      }
+    }
+  }
 }

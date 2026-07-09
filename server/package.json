@@ -1,17 +1,26 @@
 {
-  "name": "zotero-compatible-server",
+  "name": "zotero-selfhost-server",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "module": "src/index.ts",
   "scripts": {
-    "dev": "bun scripts/with-env.ts wrangler dev",
-    "deploy": "bun scripts/with-env.ts wrangler deploy",
-    "cf:whoami": "bun scripts/with-env.ts wrangler whoami",
-    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "dev:memory": "bun scripts/serve.ts",
+    "deploy": "bun run db:migrations:apply && wrangler deploy",
+    "deploy:worker": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "db:migrations:list": "wrangler d1 migrations list DB --remote",
+    "cf:types": "wrangler types",
+    "cf:types:check": "wrangler types --check",
+    "cf:whoami": "wrangler whoami",
+    "smoke:desktop": "bun scripts/desktop-smoke.ts",
+    "typecheck": "bun run cf:types && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "ultracite check && tsc --noEmit && vitest run",
+    "check": "ultracite check && bun run typecheck && vitest run",
     "fix": "ultracite fix"
   },
   "dependencies": {
@@ -23,13 +32,36 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
-    "@cloudflare/workers-types": "^5.20260706.1",
     "@types/bun": "latest",
-    "ultracite": "7.9.2",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "ultracite": "7.9.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.107.0"
+    "wrangler": "^4.110.0"
   },
-  "peerDependencies": {
-    "typescript": "^6.0.3"
+  "cloudflare": {
+    "bindings": {
+      "ATTACHMENTS": {
+        "description": "R2 bucket for Zotero stored-file attachments and legacy md5/filename storage objects."
+      },
+      "DB": {
+        "description": "D1 database for Zotero metadata, sync versions, API keys, groups, settings, full-text index state, and file metadata."
+      },
+      "RAW_FILE_URL_SECRET": {
+        "description": "Optional secret used to sign raw file-view URLs. Generate with `openssl rand -hex 32`."
+      },
+      "ROOT_PASSWORD": {
+        "description": "Admin password for compatibility setup/admin routes. Generate a unique random value; do not reuse your Zotero.org password."
+      },
+      "ROOT_USERNAME": {
+        "description": "Admin username for compatibility setup/admin routes. `root` is fine for single-owner deployments when paired with a strong password."
+      },
+      "SELFHOST_TEST_API_KEY": {
+        "description": "Initial API key used by the compatibility harness and disposable Zotero Desktop smoke. Generate a unique random value."
+      },
+      "TTS_TEST_KEY": {
+        "description": "Optional key for exercising the TTS compatibility stub. Leave blank unless you intentionally run the TTS tests."
+      }
+    }
   }
 }

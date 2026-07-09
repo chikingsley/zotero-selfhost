@@ -10,7 +10,7 @@ app.route("/", compatibility);
 
 app.doc("/openapi.json", {
   info: {
-    title: "Zotero Compatible Server",
+    title: "Zotero",
     version: "0.0.0",
   },
   openapi: "3.1.0",

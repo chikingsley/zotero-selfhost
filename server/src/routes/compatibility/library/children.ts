@@ -1,8 +1,13 @@
-import { parseNumericID, requireUser, requireGroup, filterChildItems, renderItemList, filterItemsForRequest } from "../shared";
-import { createCompatibilityStore } from "../../../storage";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
-
+import {
+  filterChildItems,
+  filterItemsForRequest,
+  parseNumericID,
+  renderItemList,
+  requireGroup,
+  requireUser,
+} from "../support";
 
 compatibility.get("/groups/:groupID/items/:itemKey/children", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -31,7 +36,6 @@ compatibility.get("/groups/:groupID/items/:itemKey/children", async (c) => {
 
   return renderItemList(c, items, result.version);
 });
-
 
 compatibility.get("/users/:userID/items/:itemKey/children", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

@@ -1,9 +1,18 @@
-import { parseNumericID, readKeyRequestBody, requireKeyRoot, getLoginBaseURL, keyAccessNotificationHeaders } from "../shared";
-import { getRequestApiKey, isRootRequest } from "../../../auth";
-import { createKeyStore, managedKeyInfo, publicKeyInfo } from "../../../keys";
-import { createCompatibilityStore } from "../../../storage";
+import { getRequestApiKey, isRootRequest } from "../../../domain/auth";
+import {
+  createKeyStore,
+  managedKeyInfo,
+  publicKeyInfo,
+} from "../../../domain/keys";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  getLoginBaseURL,
+  keyAccessNotificationHeaders,
+  parseNumericID,
+  readKeyRequestBody,
+  requireKeyRoot,
+} from "../support";
 
 compatibility.get("/keys/current", async (c) => {
   const apiKey = getRequestApiKey(c);
@@ -16,9 +25,8 @@ compatibility.get("/keys/current", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(publicKeyInfo(key));
+  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
 });
-
 
 compatibility.get("/users/:userID/keys/current", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -36,9 +44,8 @@ compatibility.get("/users/:userID/keys/current", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(publicKeyInfo(key));
+  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
 });
-
 
 compatibility.post("/keys/sessions", async (c) => {
   const body = await readKeyRequestBody(c);
@@ -52,7 +59,6 @@ compatibility.post("/keys/sessions", async (c) => {
   return c.json(result, 201);
 });
 
-
 compatibility.get("/keys/sessions/:sessionToken", async (c) => {
   const status = await createKeyStore(c.env).getSessionStatus(
     c.req.param("sessionToken")
@@ -63,7 +69,6 @@ compatibility.get("/keys/sessions/:sessionToken", async (c) => {
 
   return c.json(status);
 });
-
 
 compatibility.delete("/keys/sessions/:sessionToken", async (c) => {
   const result = await createKeyStore(c.env).cancelSession(
@@ -78,7 +83,6 @@ compatibility.delete("/keys/sessions/:sessionToken", async (c) => {
 
   return c.body(null, 204);
 });
-
 
 compatibility.get("/keys/sessions/:sessionToken/info", async (c) => {
   const rootError = requireKeyRoot(c);
@@ -95,7 +99,6 @@ compatibility.get("/keys/sessions/:sessionToken/info", async (c) => {
 
   return c.json(info);
 });
-
 
 compatibility.post("/keys/sessions/complete", async (c) => {
   const rootError = requireKeyRoot(c);
@@ -119,16 +122,14 @@ compatibility.post("/keys/sessions/complete", async (c) => {
   return c.body(null, 204);
 });
 
-
 compatibility.get("/keys/:apiKey", async (c) => {
   const key = await createKeyStore(c.env).getKey(c.req.param("apiKey"));
   if (!key) {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(publicKeyInfo(key));
+  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
 });
-
 
 compatibility.get("/users/:userID/keys/:apiKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -141,9 +142,8 @@ compatibility.get("/users/:userID/keys/:apiKey", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json(publicKeyInfo(key));
+  return c.json(isRootRequest(c) ? managedKeyInfo(key) : publicKeyInfo(key));
 });
-
 
 compatibility.get("/users/:userID/keys", async (c) => {
   const rootError = requireKeyRoot(c);
@@ -159,7 +159,6 @@ compatibility.get("/users/:userID/keys", async (c) => {
   const keys = await createKeyStore(c.env).listUserKeys(userID);
   return c.json(keys.map(managedKeyInfo));
 });
-
 
 compatibility.post("/users/:userID/keys", async (c) => {
   const rootError = requireKeyRoot(c);
@@ -182,7 +181,6 @@ compatibility.post("/users/:userID/keys", async (c) => {
   return c.json(managedKeyInfo(key), 201);
 });
 
-
 compatibility.post("/keys", async (c) => {
   const body = await readKeyRequestBody(c);
   const keyStore = createKeyStore(c.env);
@@ -199,7 +197,6 @@ compatibility.post("/keys", async (c) => {
 
   return c.json(managedKeyInfo(key), 201);
 });
-
 
 compatibility.put("/keys/:apiKey", async (c) => {
   const apiKey = c.req.param("apiKey");
@@ -239,7 +236,6 @@ compatibility.put("/keys/:apiKey", async (c) => {
   );
 });
 
-
 compatibility.put("/users/:userID/keys/:apiKey", async (c) => {
   const rootError = requireKeyRoot(c);
   if (rootError) {
@@ -275,7 +271,6 @@ compatibility.put("/users/:userID/keys/:apiKey", async (c) => {
   );
 });
 
-
 compatibility.delete("/keys/current", async (c) => {
   const apiKey = getRequestApiKey(c);
   if (!apiKey) {
@@ -285,7 +280,6 @@ compatibility.delete("/keys/current", async (c) => {
   const deleted = await createKeyStore(c.env).deleteKey(apiKey);
   return deleted ? c.body(null, 204) : c.text("Invalid key", 403);
 });
-
 
 compatibility.delete("/users/:userID/keys/current", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -308,7 +302,6 @@ compatibility.delete("/users/:userID/keys/current", async (c) => {
   return c.body(null, 204);
 });
 
-
 compatibility.delete("/keys/:apiKey", async (c) => {
   const apiKey = c.req.param("apiKey");
   const requestApiKey = getRequestApiKey(c);
@@ -319,7 +312,6 @@ compatibility.delete("/keys/:apiKey", async (c) => {
   const deleted = await createKeyStore(c.env).deleteKey(apiKey);
   return deleted ? c.body(null, 204) : c.text("Invalid key", 403);
 });
-
 
 compatibility.delete("/users/:userID/keys/:apiKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

@@ -14,7 +14,7 @@ describe("health route", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      service: "zotero-compatible-server",
+      service: "zotero",
     });
   });
 
@@ -22,7 +22,7 @@ describe("health route", () => {
     const response = await app.request("/openapi.json");
     expect(response.status).toBe(200);
     const body = (await response.json()) as OpenApiDocument;
-    expect(body.info.title).toBe("Zotero Compatible Server");
+    expect(body.info.title).toBe("Zotero");
     expect(body.paths["/health"]).toBeDefined();
   });
 });

@@ -1,7 +1,40 @@
-import { parseNumericID, requireUser, requireUserWrite, isValidMd5, supportedPartialUploadAlgorithms, parseFileParams, getUploadBaseURL, getRawFileURL, getPublicationRawFileURL, getGroupUploadBaseURL, getGroupRawFileURL, parseUploadBody, responseBodyToArrayBuffer, formatAttachmentContentType, requireSignedRawFileURL, checkStorageQuota, requireGroup, requireGroupFileEdit, getPublicationItem, renderPublicationItemAtom, withPublicationLinks } from "../shared";
-import { applyZoteroPatch, PatchAlgorithmUnavailableError } from "../../../patch";
-import { createCompatibilityStore, type AttachmentFileRecord, type CompatibilityStore } from "../../../storage";
+import { getRequestApiKey } from "../../../domain/auth";
+import {
+  type AttachmentFileRecord,
+  type CompatibilityStore,
+  createCompatibilityStore,
+} from "../../../domain/storage";
+import {
+  applyZoteroPatch,
+  PatchAlgorithmUnavailableError,
+} from "../../../lib/patch";
 import { compatibility } from "../router";
+import {
+  attachItemMeta,
+  checkStorageQuota,
+  createSignedRawFileURL,
+  escapeXML,
+  formatAttachmentContentType,
+  getGroupRawFileURL,
+  getGroupUploadBaseURL,
+  getPublicationFileViewURL,
+  getPublicationItem,
+  getPublicationRawFileURL,
+  getRawFileURL,
+  getUploadBaseURL,
+  isValidMd5,
+  parseFileParams,
+  parseNumericID,
+  parseUploadBody,
+  requireGroup,
+  requireGroupFileEdit,
+  requireSignedRawFileURL,
+  requireUser,
+  requireUserWrite,
+  responseBodyToArrayBuffer,
+  shapeItemForSchemaRequest,
+  supportedPartialUploadAlgorithms,
+} from "../support";
 
 type AttachmentUploadInput = Parameters<
   CompatibilityStore["authorizeAttachmentUpload"]
@@ -63,21 +96,186 @@ const redirectToAttachment = (url: string, file: AttachmentFileRecord) =>
     status: 302,
   });
 
+const getAttachmentRawFileURL = (
+  c: Parameters<typeof getRawFileURL>[0],
+  scope: "g" | "p" | "u",
+  id: number,
+  itemKey: string,
+  file: AttachmentFileRecord
+): Promise<string> => {
+  if (
+    file.storageMd5 &&
+    file.storageFilename &&
+    (file.legacyStorage || file.r2Key.startsWith("files/"))
+  ) {
+    return createSignedRawFileURL(
+      c,
+      `/${file.storageMd5}/${encodeURIComponent(file.storageFilename)}`
+    );
+  }
+
+  if (scope === "g") {
+    return getGroupRawFileURL(c, id, itemKey, file.md5, file.filename);
+  }
+  if (scope === "p") {
+    return getPublicationRawFileURL(c, id, itemKey, file.md5, file.filename);
+  }
+  return getRawFileURL(c, id, itemKey, file.md5, file.filename);
+};
+
 const rejectNonStoredAttachment = (
   data: Record<string, unknown> | null
 ): Response | null => {
-  if (!data || data.itemType !== "attachment") {
+  if (data?.itemType !== "attachment") {
     return new Response("Item is not an attachment", { status: 400 });
   }
   if (!isStoredFileAttachmentData(data)) {
-    return new Response("Cannot upload file for linked file/URL attachment item", {
-      status: 400,
-    });
+    return new Response(
+      "Cannot upload file for linked file/URL attachment item",
+      {
+        status: 400,
+      }
+    );
   }
 
   return null;
 };
 
+interface PublicationItemRecord {
+  data: Record<string, unknown>;
+  key: string;
+  version: number;
+}
+
+const publicationRestrictedDataFields = ["collections", "relations", "tags"];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isVisiblePublicationItem = (item: {
+  data?: Record<string, unknown>;
+  key: string;
+  version?: number;
+}): item is PublicationItemRecord =>
+  item.data?.inPublications === true && !item.data.deleted;
+
+const sanitizePublicationData = (data: Record<string, unknown>) => {
+  const sanitized = { ...data };
+  for (const field of publicationRestrictedDataFields) {
+    delete sanitized[field];
+  }
+  return sanitized;
+};
+
+const publicationItemPath = (userID: number, itemKey: string) =>
+  `/users/${userID}/publications/items/${itemKey}`;
+
+const getVisiblePublicationItems = async (
+  store: CompatibilityStore,
+  userID: number
+) => {
+  const result = await store.listItems(userID);
+  return {
+    items: result.items.filter(isVisiblePublicationItem),
+    version: result.version,
+  };
+};
+
+const attachPublicationItem = async (
+  c: Parameters<typeof getRawFileURL>[0],
+  store: CompatibilityStore,
+  userID: number,
+  item: PublicationItemRecord,
+  publicationItems: PublicationItemRecord[]
+) => {
+  const origin = new URL(c.req.url).origin;
+  const publicItem = shapeItemForSchemaRequest(c, {
+    ...item,
+    data: sanitizePublicationData(item.data),
+  });
+  const envelope = await attachItemMeta(c, publicItem, {
+    allItems: publicationItems.map((candidate) => ({
+      ...candidate,
+      data: sanitizePublicationData(candidate.data),
+    })),
+    libraryID: userID,
+    libraryType: "user",
+    store,
+  });
+  const links = isRecord(envelope.links) ? { ...envelope.links } : {};
+  links.self = {
+    href: `${origin}${publicationItemPath(userID, item.key)}`,
+    type: "application/json",
+  };
+  links.alternate = {
+    href: `${origin}${publicationItemPath(userID, item.key)}`,
+    type: "text/html",
+  };
+
+  const file = await store.getAttachmentFile(userID, item.key);
+  if (file) {
+    links.enclosure = {
+      href: getPublicationFileViewURL(c, userID, item.key),
+      type:
+        file.contentType ?? item.data.contentType ?? "application/octet-stream",
+    };
+  }
+
+  return {
+    ...envelope,
+    links,
+  };
+};
+
+const renderPublicationItemAtomEntry = async (
+  c: Parameters<typeof getRawFileURL>[0],
+  store: CompatibilityStore,
+  userID: number,
+  item: PublicationItemRecord
+) => {
+  const origin = new URL(c.req.url).origin;
+  const title = String(item.data.title || item.key);
+  const file = await store.getAttachmentFile(userID, item.key);
+  return [
+    '<entry xmlns="http://www.w3.org/2005/Atom">',
+    `<id>http://zotero.org/users/${userID}/items/${item.key}</id>`,
+    `<title>${escapeXML(title)}</title>`,
+    `<link rel="self" href="${escapeXML(
+      `${origin}${publicationItemPath(userID, item.key)}?format=atom`
+    )}"/>`,
+    `<link rel="alternate" href="${escapeXML(
+      `${origin}${publicationItemPath(userID, item.key)}`
+    )}"/>`,
+    file
+      ? `<link rel="enclosure" href="${escapeXML(
+          getPublicationFileViewURL(c, userID, item.key)
+        )}"/>`
+      : "",
+    "</entry>",
+  ].join("");
+};
+
+const renderPublicationItemsAtomFeed = async (
+  c: Parameters<typeof getRawFileURL>[0],
+  store: CompatibilityStore,
+  userID: number,
+  items: PublicationItemRecord[]
+) => {
+  const origin = new URL(c.req.url).origin;
+  const self = `${origin}/users/${userID}/publications/items?format=atom`;
+  const entries = await Promise.all(
+    items.map((item) => renderPublicationItemAtomEntry(c, store, userID, item))
+  );
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<feed xmlns="http://www.w3.org/2005/Atom">',
+    `<id>http://zotero.org/users/${userID}/publications/items</id>`,
+    `<link rel="self" href="${escapeXML(self)}"/>`,
+    `<link rel="first" href="${escapeXML(self)}"/>`,
+    ...entries,
+    "</feed>",
+  ].join("");
+};
 
 compatibility.post(
   "/groups/:groupID/items/:itemKey/file/upload/:uploadKey",
@@ -114,7 +312,6 @@ compatibility.post(
   }
 );
 
-
 compatibility.get(
   "/groups/:groupID/items/:itemKey/file/raw/:md5/:filename",
   async (c) => {
@@ -123,11 +320,9 @@ compatibility.get(
       return c.text("Invalid groupID", 400);
     }
 
-    const result =
-      await createCompatibilityStore(c.env).getGroupAttachmentObject(
-        groupID,
-        c.req.param("itemKey")
-      );
+    const result = await createCompatibilityStore(
+      c.env
+    ).getGroupAttachmentObject(groupID, c.req.param("itemKey"));
 
     if (!(await requireSignedRawFileURL(c))) {
       return c.text("Invalid file URL", 403);
@@ -143,7 +338,6 @@ compatibility.get(
     });
   }
 );
-
 
 compatibility.get(
   "/groups/:groupID/items/:itemKey/file/view/url",
@@ -167,17 +361,16 @@ compatibility.get(
     }
 
     return c.text(
-      await getGroupRawFileURL(
+      await getAttachmentRawFileURL(
         c,
+        "g",
         groupID,
         c.req.param("itemKey"),
-        file.md5,
-        file.filename
+        file
       )
     );
   }
 );
-
 
 compatibility.get("/groups/:groupID/items/:itemKey/file/view", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -199,11 +392,16 @@ compatibility.get("/groups/:groupID/items/:itemKey/file/view", async (c) => {
   }
 
   return c.redirect(
-    await getGroupRawFileURL(c, groupID, c.req.param("itemKey"), file.md5, file.filename),
+    await getAttachmentRawFileURL(
+      c,
+      "g",
+      groupID,
+      c.req.param("itemKey"),
+      file
+    ),
     302
   );
 });
-
 
 compatibility.patch("/groups/:groupID/items/:itemKey/file", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -305,7 +503,6 @@ compatibility.patch("/groups/:groupID/items/:itemKey/file", async (c) => {
   });
 });
 
-
 compatibility.get("/groups/:groupID/items/:itemKey/file", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -326,17 +523,16 @@ compatibility.get("/groups/:groupID/items/:itemKey/file", async (c) => {
   }
 
   return redirectToAttachment(
-    await getGroupRawFileURL(
+    await getAttachmentRawFileURL(
       c,
+      "g",
       groupID,
       c.req.param("itemKey"),
-      file.md5,
-      file.filename
+      file
     ),
     file
   );
 });
-
 
 compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -499,7 +695,6 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
   return c.json(authorization);
 });
 
-
 compatibility.post(
   "/users/:userID/items/:itemKey/file/upload/:uploadKey",
   async (c) => {
@@ -535,7 +730,6 @@ compatibility.post(
   }
 );
 
-
 compatibility.get(
   "/users/:userID/publications/items/:itemKey/file/raw/:md5/:filename",
   async (c) => {
@@ -554,7 +748,10 @@ compatibility.get(
       return c.text("Item not found", 404);
     }
 
-    const result = await store.getAttachmentObject(userID, c.req.param("itemKey"));
+    const result = await store.getAttachmentObject(
+      userID,
+      c.req.param("itemKey")
+    );
 
     if (!(await requireSignedRawFileURL(c))) {
       return c.text("Invalid file URL", 403);
@@ -570,7 +767,6 @@ compatibility.get(
     });
   }
 );
-
 
 compatibility.get(
   "/users/:userID/publications/items/:itemKey/file/view/url",
@@ -596,17 +792,16 @@ compatibility.get(
     }
 
     return c.text(
-      await getPublicationRawFileURL(
+      await getAttachmentRawFileURL(
         c,
+        "p",
         userID,
         c.req.param("itemKey"),
-        file.md5,
-        file.filename
+        file
       )
     );
   }
 );
-
 
 compatibility.get(
   "/users/:userID/publications/items/:itemKey/file/view",
@@ -632,18 +827,115 @@ compatibility.get(
     }
 
     return c.redirect(
-      await getPublicationRawFileURL(
+      await getAttachmentRawFileURL(
         c,
+        "p",
         userID,
         c.req.param("itemKey"),
-        file.md5,
-        file.filename
+        file
       ),
       302
     );
   }
 );
 
+compatibility.get("/users/:userID/publications/settings", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  const publications = await getVisiblePublicationItems(store, userID);
+  if (publications.items.length > 0) {
+    return c.text("Publications settings are unavailable", 400);
+  }
+
+  return c.json({}, 200, {
+    "Last-Modified-Version": `${publications.version}`,
+  });
+});
+
+compatibility.get("/users/:userID/publications/deleted", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+
+  const result = await createCompatibilityStore(c.env).listItems(userID);
+  return c.json({}, 200, {
+    "Last-Modified-Version": `${result.version}`,
+  });
+});
+
+compatibility.post("/users/:userID/publications/items", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+  if (!getRequestApiKey(c)) {
+    return c.text("Invalid key", 403);
+  }
+
+  return c.text("Method Not Allowed", 405, {
+    Allow: "GET",
+  });
+});
+
+compatibility.get("/users/:userID/publications/items/top", async (c) => {
+  const userID = parseNumericID(c.req.param("userID"));
+  if (userID === null) {
+    return c.text("Invalid userID", 400);
+  }
+
+  const store = createCompatibilityStore(c.env);
+  const publications = await getVisiblePublicationItems(store, userID);
+  const items = publications.items.filter(
+    (item) => typeof item.data.parentItem !== "string"
+  );
+  const responseItems = await Promise.all(
+    items.map((item) =>
+      attachPublicationItem(c, store, userID, item, publications.items)
+    )
+  );
+
+  return c.json(responseItems, 200, {
+    "Last-Modified-Version": `${publications.version}`,
+    "Total-Results": `${responseItems.length}`,
+  });
+});
+
+compatibility.get(
+  "/users/:userID/publications/items/:itemKey/children",
+  async (c) => {
+    const userID = parseNumericID(c.req.param("userID"));
+    if (userID === null) {
+      return c.text("Invalid userID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    const publications = await getVisiblePublicationItems(store, userID);
+    const parent = publications.items.find(
+      (item) => item.key === c.req.param("itemKey")
+    );
+    if (!parent) {
+      return c.text("Item not found", 404);
+    }
+    const children = publications.items.filter(
+      (item) => item.data.parentItem === parent.key
+    );
+    const responseItems = await Promise.all(
+      children.map((item) =>
+        attachPublicationItem(c, store, userID, item, publications.items)
+      )
+    );
+
+    return c.json(responseItems, 200, {
+      "Last-Modified-Version": `${publications.version}`,
+      "Total-Results": `${responseItems.length}`,
+    });
+  }
+);
 
 compatibility.get("/users/:userID/publications/items/:itemKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -652,35 +944,34 @@ compatibility.get("/users/:userID/publications/items/:itemKey", async (c) => {
   }
 
   const store = createCompatibilityStore(c.env);
-  const publication = await getPublicationItem(
-    store,
-    userID,
-    c.req.param("itemKey")
+  const publications = await getVisiblePublicationItems(store, userID);
+  const item = publications.items.find(
+    (candidate) => candidate.key === c.req.param("itemKey")
   );
-  if (!publication) {
+  if (!item) {
     return c.text("Item not found", 404);
   }
 
   if (c.req.query("format") === "atom") {
     return c.text(
-      renderPublicationItemAtom(c, userID, c.req.param("itemKey")),
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+        (await renderPublicationItemAtomEntry(c, store, userID, item)),
       200,
       {
         "Content-Type": "application/atom+xml",
-        "Last-Modified-Version": `${publication.version}`,
+        "Last-Modified-Version": `${item.version}`,
       }
     );
   }
 
   return c.json(
-    withPublicationLinks(c, userID, publication.item),
+    await attachPublicationItem(c, store, userID, item, publications.items),
     200,
     {
-      "Last-Modified-Version": `${publication.version}`,
+      "Last-Modified-Version": `${item.version}`,
     }
   );
 });
-
 
 compatibility.get("/users/:userID/publications/items", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -688,34 +979,42 @@ compatibility.get("/users/:userID/publications/items", async (c) => {
     return c.text("Invalid userID", 400);
   }
 
-  const result = await createCompatibilityStore(c.env).listItems(userID);
-  const items = result.items.filter((item) => item.data.inPublications === true);
+  const store = createCompatibilityStore(c.env);
+  const publications = await getVisiblePublicationItems(store, userID);
+  const items = publications.items;
 
-  if (c.req.query("format") === "atom") {
-    return c.text(
-      [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<feed xmlns="http://www.w3.org/2005/Atom">',
-        ...items.map((item) =>
-          renderPublicationItemAtom(c, userID, item.key)
-        ),
-        "</feed>",
-      ].join(""),
+  if (c.req.query("format") === "versions") {
+    return c.json(
+      Object.fromEntries(items.map((item) => [item.key, item.version])),
       200,
       {
-        "Content-Type": "application/atom+xml",
-        "Last-Modified-Version": `${result.version}`,
+        "Last-Modified-Version": `${publications.version}`,
         "Total-Results": `${items.length}`,
       }
     );
   }
 
-  return c.json(items.map((item) => withPublicationLinks(c, userID, item)), 200, {
-    "Last-Modified-Version": `${result.version}`,
-    "Total-Results": `${items.length}`,
+  if (c.req.query("format") === "atom") {
+    return c.text(
+      await renderPublicationItemsAtomFeed(c, store, userID, items),
+      200,
+      {
+        "Content-Type": "application/atom+xml",
+        "Last-Modified-Version": `${publications.version}`,
+        "Total-Results": `${items.length}`,
+      }
+    );
+  }
+
+  const responseItems = await Promise.all(
+    items.map((item) => attachPublicationItem(c, store, userID, item, items))
+  );
+
+  return c.json(responseItems, 200, {
+    "Last-Modified-Version": `${publications.version}`,
+    "Total-Results": `${responseItems.length}`,
   });
 });
-
 
 compatibility.get(
   "/users/:userID/items/:itemKey/file/raw/:md5/:filename",
@@ -745,7 +1044,6 @@ compatibility.get(
   }
 );
 
-
 compatibility.get("/users/:userID/items/:itemKey/file/view/url", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -763,10 +1061,9 @@ compatibility.get("/users/:userID/items/:itemKey/file/view/url", async (c) => {
   }
 
   return c.text(
-    await getRawFileURL(c, userID, c.req.param("itemKey"), file.md5, file.filename)
+    await getAttachmentRawFileURL(c, "u", userID, c.req.param("itemKey"), file)
   );
 });
-
 
 compatibility.get("/users/:userID/items/:itemKey/file/view", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -785,17 +1082,10 @@ compatibility.get("/users/:userID/items/:itemKey/file/view", async (c) => {
   }
 
   return redirectToAttachment(
-    await getRawFileURL(
-      c,
-      userID,
-      c.req.param("itemKey"),
-      file.md5,
-      file.filename
-    ),
+    await getAttachmentRawFileURL(c, "u", userID, c.req.param("itemKey"), file),
     file
   );
 });
-
 
 compatibility.get("/users/:userID/items/:itemKey/file", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -814,11 +1104,10 @@ compatibility.get("/users/:userID/items/:itemKey/file", async (c) => {
   }
 
   return c.redirect(
-    await getRawFileURL(c, userID, c.req.param("itemKey"), file.md5, file.filename),
+    await getAttachmentRawFileURL(c, "u", userID, c.req.param("itemKey"), file),
     302
   );
 });
-
 
 compatibility.patch("/users/:userID/items/:itemKey/file", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -906,7 +1195,11 @@ compatibility.patch("/users/:userID/items/:itemKey/file", async (c) => {
     return c.text("Patched file size does not match", 409);
   }
 
-  const result = await store.registerAttachmentUpload(userID, itemKey, uploadKey);
+  const result = await store.registerAttachmentUpload(
+    userID,
+    itemKey,
+    uploadKey
+  );
   if (!result.registered) {
     return c.text("Upload key not found", 400);
   }
@@ -915,7 +1208,6 @@ compatibility.patch("/users/:userID/items/:itemKey/file", async (c) => {
     "Last-Modified-Version": `${result.version}`,
   });
 });
-
 
 compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

@@ -2,7 +2,7 @@
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],
-    "types": ["@cloudflare/workers-types", "vitest/globals"],
+    "types": ["./worker-configuration.d.ts", "vitest/globals", "node"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
@@ -25,5 +25,10 @@
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "wrangler.jsonc"]
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "worker-configuration.d.ts",
+    "wrangler.jsonc"
+  ]
 }

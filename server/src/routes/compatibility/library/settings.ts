@@ -1,8 +1,28 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, requireGroupAdmin, getIfUnmodifiedSinceVersion, settingHeaders, renderSettingsList, getSinceVersion, getRequestedSettingKeys, isSettingsObject, parseSettingsBody, renderSettingsWriteFailure, ensureSingleSettingPrecondition } from "../shared";
-import { createSettingsStore, isAdminOnlySettingKey, type SettingFailure, type SettingPayload } from "../../../settings";
-import { createCompatibilityStore } from "../../../storage";
+import {
+  createSettingsStore,
+  isAdminOnlySettingKey,
+  type SettingFailure,
+  type SettingPayload,
+} from "../../../domain/settings";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  ensureSingleSettingPrecondition,
+  getIfUnmodifiedSinceVersion,
+  getRequestedSettingKeys,
+  getSinceVersion,
+  isSettingsObject,
+  parseNumericID,
+  parseSettingsBody,
+  renderSettingsList,
+  renderSettingsWriteFailure,
+  requireGroup,
+  requireGroupAdmin,
+  requireGroupEdit,
+  requireUser,
+  requireUserWrite,
+  settingHeaders,
+} from "../support";
 
 compatibility.get("/groups/:groupID/settings/:settingKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -26,7 +46,6 @@ compatibility.get("/groups/:groupID/settings/:settingKey", async (c) => {
 
   return c.json(result.setting, 200, settingHeaders(result.setting.version));
 });
-
 
 compatibility.put("/groups/:groupID/settings/:settingKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -72,7 +91,6 @@ compatibility.put("/groups/:groupID/settings/:settingKey", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 compatibility.delete("/groups/:groupID/settings/:settingKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -85,7 +103,10 @@ compatibility.delete("/groups/:groupID/settings/:settingKey", async (c) => {
   }
 
   const settingKey = c.req.param("settingKey");
-  if (isAdminOnlySettingKey(settingKey) && !(await requireGroupAdmin(c, compatibilityStore, groupID))) {
+  if (
+    isAdminOnlySettingKey(settingKey) &&
+    !(await requireGroupAdmin(c, compatibilityStore, groupID))
+  ) {
     return c.text(`Only group admins can change setting '${settingKey}'`, 403);
   }
 
@@ -105,7 +126,6 @@ compatibility.delete("/groups/:groupID/settings/:settingKey", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.get("/groups/:groupID/settings", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -127,7 +147,6 @@ compatibility.get("/groups/:groupID/settings", async (c) => {
   return renderSettingsList(c, result);
 });
 
-
 compatibility.post("/groups/:groupID/settings", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -148,7 +167,7 @@ compatibility.post("/groups/:groupID/settings", async (c) => {
   const result = await createSettingsStore(c.env).upsertSettings(
     "group",
     groupID,
-    Object.entries(body) as Array<[string, SettingPayload]>,
+    Object.entries(body) as [string, SettingPayload][],
     getIfUnmodifiedSinceVersion(c),
     canAdmin
   );
@@ -162,7 +181,11 @@ compatibility.post("/groups/:groupID/settings", async (c) => {
     }
 
     return c.json(
-      { failed: result.failed, successful: result.successful, unchanged: result.unchanged },
+      {
+        failed: result.failed,
+        successful: result.successful,
+        unchanged: result.unchanged,
+      },
       200,
       settingHeaders(result.version)
     );
@@ -170,7 +193,6 @@ compatibility.post("/groups/:groupID/settings", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.delete("/groups/:groupID/settings", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -189,9 +211,14 @@ compatibility.delete("/groups/:groupID/settings", async (c) => {
   }
 
   const canAdmin = await requireGroupAdmin(c, compatibilityStore, groupID);
-  const restrictedKey = settingKeys.find((settingKey) => isAdminOnlySettingKey(settingKey) && !canAdmin);
+  const restrictedKey = settingKeys.find(
+    (settingKey) => isAdminOnlySettingKey(settingKey) && !canAdmin
+  );
   if (restrictedKey) {
-    return c.text(`Only group admins can change setting '${restrictedKey}'`, 403);
+    return c.text(
+      `Only group admins can change setting '${restrictedKey}'`,
+      403
+    );
   }
 
   const result = await createSettingsStore(c.env).deleteSettings(
@@ -206,7 +233,6 @@ compatibility.delete("/groups/:groupID/settings", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.get("/users/:userID/settings/:settingKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -230,7 +256,6 @@ compatibility.get("/users/:userID/settings/:settingKey", async (c) => {
 
   return c.json(result.setting, 200, settingHeaders(result.setting.version));
 });
-
 
 compatibility.put("/users/:userID/settings/:settingKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -270,7 +295,6 @@ compatibility.put("/users/:userID/settings/:settingKey", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 compatibility.delete("/users/:userID/settings/:settingKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -299,7 +323,6 @@ compatibility.delete("/users/:userID/settings/:settingKey", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 compatibility.get("/users/:userID/settings", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -320,7 +343,6 @@ compatibility.get("/users/:userID/settings", async (c) => {
   return renderSettingsList(c, result);
 });
 
-
 compatibility.post("/users/:userID/settings", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -340,7 +362,7 @@ compatibility.post("/users/:userID/settings", async (c) => {
   const result = await createSettingsStore(c.env).upsertSettings(
     "user",
     userID,
-    Object.entries(body) as Array<[string, SettingPayload]>,
+    Object.entries(body) as [string, SettingPayload][],
     getIfUnmodifiedSinceVersion(c)
   );
   if (result.preconditionFailed) {
@@ -353,7 +375,11 @@ compatibility.post("/users/:userID/settings", async (c) => {
     }
 
     return c.json(
-      { failed: result.failed, successful: result.successful, unchanged: result.unchanged },
+      {
+        failed: result.failed,
+        successful: result.successful,
+        unchanged: result.unchanged,
+      },
       200,
       settingHeaders(result.version)
     );
@@ -362,12 +388,9 @@ compatibility.post("/users/:userID/settings", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 const settingsFailuresUseWriteReport = (
   failed: Record<string, SettingFailure>
-): boolean =>
-  Object.values(failed).every((failure) => failure.code === 403);
-
+): boolean => Object.values(failed).every((failure) => failure.code === 403);
 
 compatibility.delete("/users/:userID/settings", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

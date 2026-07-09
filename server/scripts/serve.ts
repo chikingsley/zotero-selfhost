@@ -8,14 +8,14 @@
 import app from "../src/index";
 
 const env = {
+  RAW_FILE_URL_SECRET: process.env.RAW_FILE_URL_SECRET ?? "local-dev-secret",
   ROOT_PASSWORD: process.env.ROOT_PASSWORD ?? "local-root-password",
   ROOT_USERNAME: process.env.ROOT_USERNAME ?? "root",
-  RAW_FILE_URL_SECRET: process.env.RAW_FILE_URL_SECRET ?? "local-dev-secret",
 };
 
 const executionCtx = {
-  waitUntil: (_promise: Promise<unknown>) => undefined,
   passThroughOnException: () => undefined,
+  waitUntil: (_promise: Promise<unknown>) => undefined,
 } as unknown as ExecutionContext;
 
 const port = Number(process.env.PORT ?? 8787);
@@ -26,5 +26,4 @@ Bun.serve({
   port,
 });
 
-// biome-ignore lint/suspicious/noConsole: dev server startup notice
 console.log(`candidate server (memory mode) on http://127.0.0.1:${port}`);

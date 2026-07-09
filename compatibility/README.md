@@ -4,7 +4,7 @@ This folder tracks how we turn Zotero's official API behavior into a buildable c
 
 ## Source Of Truth
 
-Primary oracle:
+Primary oracle, cloned locally when needed:
 
 - `../references/dataserver/tests/remote`
 
@@ -18,6 +18,17 @@ Important files:
 
 The remote tests are HTTP-level tests. That makes them reusable: first against official `dataserver`, later against our candidate server.
 
+`references/` is intentionally not committed. It is local maintenance input,
+not product source. To refresh the oracle:
+
+```bash
+mkdir -p references
+git clone https://github.com/zotero/dataserver references/dataserver
+cd references/dataserver/tests/remote && npm install
+curl -sL https://api.zotero.org/schema \
+  -o ../../htdocs/zotero-schema/schema.json
+```
+
 ## Test Phases
 
 | Phase | Test areas | Purpose |
@@ -27,20 +38,19 @@ The remote tests are HTTP-level tests. That makes them reusable: first against o
 | 2 | `file` | Stored attachments, upload registration, file view/download behavior. |
 | 3 | `annotation`, `search`, `relation`, `sort`, `params`, `cache` | Rich library behavior needed by serious clients. |
 | 4 | `keys`, `permissions`, `loginSessions` | Auth and access model. |
-| 5 | `group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin` | Full parity or later server editions. |
+| 5 | `group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin` | Covered by the broad official v3 run; `tts` is pending/skipped upstream. |
 
-## MVP Target
+## Current Target
 
-The first candidate server should target phases 0, 1, and the useful subset of phase 2.
+The deployed candidate currently targets the full official v3 API suite against
+Cloudflare D1/R2, with all non-pending tests green.
 
-That means:
+The remaining work is product packaging around that compatible API:
 
-- One user.
-- One personal library.
-- One API token.
-- Items, collections, tags, notes, settings, deleted state.
-- Version headers and conditional writes.
-- Attachment metadata and object storage.
+- Real deployment onboarding/auth decisions.
+- License and public naming/trademark decisions.
+- Optional web UI work. Zotero Desktop is configurable against the candidate API;
+  the official Zotero Web Library is not a drop-in self-hosted client.
 
 ## Harness Strategy
 
@@ -53,13 +63,10 @@ Preferred approach:
 3. Create a thin runner/config adapter for our candidate server.
 4. Copy or wrap individual tests only when a test depends on official-only setup endpoints.
 
-## Status Files To Add
+## Status Files
 
-Future files:
-
-- `reference-stack-status.md`: what passes against official local dataserver.
-- `candidate-status.md`: what passes against our server.
-- `known-differences.md`: explicit accepted deviations.
+- `candidate-status.md`: latest measured live and local compatibility status.
+- `known-differences.md`: accepted deviations and harness caveats.
 
 ## Runner
 
@@ -68,7 +75,10 @@ Use `run-zotero-tests.ts` to run Zotero's official remote tests with runtime con
 Examples:
 
 ```bash
-bun compatibility/run-zotero-tests.ts --target reference -- -v 3 general
+# Terminal 1: fast in-memory candidate
+cd server && bun run dev:memory
+
+# Terminal 2: score it against Zotero's official tests
 bun compatibility/run-zotero-tests.ts --target candidate -- -v 3 general
 ```
 
@@ -78,3 +88,10 @@ Config files:
 - `compatibility/config/candidate.local.json`
 
 Create them from the corresponding `.example.json` files. Local config files are ignored because they can contain test credentials or local endpoints.
+
+For the deployed Cloudflare D1/R2 candidate, use an ignored config such as
+`compatibility/config/candidate-cloudflare.local.json` with the live
+`apiURLPrefix`, `s3Bucket`, `awsRegion: "auto"`, and
+`cloudflareR2FromApiToken: true`. Run the harness from `server/` so Bun loads
+the ignored `server/.env`; the harness derives temporary AWS SDK environment
+variables from the Cloudflare token without writing R2 secrets into the repo.

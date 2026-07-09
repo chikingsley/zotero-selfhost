@@ -17,5 +17,6 @@ import "./files/files";
 import "./library/items-group";
 import "./groups/groups";
 import "./library/items-user";
+import "./files/storage-urls";
 
 export { compatibility } from "./router";

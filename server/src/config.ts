@@ -1,9 +1,9 @@
 import type { Bindings } from "./bindings";
 
 export interface AppConfig {
-  zoteroApiKey?: string;
+  selfhostTestApiKey?: string;
 }
 
 export const getConfig = (bindings: Bindings): AppConfig => ({
-  zoteroApiKey: bindings.ZOTERO_API_KEY,
+  selfhostTestApiKey: bindings.SELFHOST_TEST_API_KEY,
 });

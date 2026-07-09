@@ -1,15 +1,43 @@
-import { parseNumericID, requireRoot, bytesToMegabytes, renderStorageAdminXML, parseStorageQuota, requireGroup, parseGroupUsersXML, renderGroupUsersXML, allGroupAccessNotifications, renderGroupCreateAtom, isPublicGroupRecord, getGroupVersion, groupResponse, filterGroupsForRequest, renderUserGroupsAtom, renderGroupUpdateAtom, parseGroupXML } from "../shared";
-import { getRequestApiKey } from "../../../auth";
-import { createKeyStore, keyAllowsGroupPermission, keyAllowsUserPermission } from "../../../keys";
-import { clearMemoryCollections } from "../../../collections";
-import { clearMemoryDeleted } from "../../../deleted";
-import { clearMemorySearches, createSearchStore } from "../../../searches";
-import { createFullTextStore } from "../../../fulltext";
-import { clearMemorySettings, createSettingsStore } from "../../../settings";
-import { createCompatibilityStore } from "../../../storage";
-import { notificationHeaders, topicDeletedNotification } from "../../../notifications";
+import type { Context } from "hono";
+import type { Bindings } from "../../../bindings";
+import { getRequestApiKey } from "../../../domain/auth";
+import { clearMemoryCollections } from "../../../domain/collections";
+import { clearMemoryDeleted } from "../../../domain/deleted";
+import { createFullTextStore } from "../../../domain/fulltext";
+import { createKeyStore, keyAllowsGroupPermission } from "../../../domain/keys";
+import {
+  notificationHeaders,
+  topicDeletedNotification,
+} from "../../../domain/notifications";
+import {
+  clearMemorySearches,
+  createSearchStore,
+} from "../../../domain/searches";
+import {
+  clearMemorySettings,
+  createSettingsStore,
+} from "../../../domain/settings";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  allGroupAccessNotifications,
+  bytesToMegabytes,
+  filterGroupsForRequest,
+  getGroupVersion,
+  groupResponse,
+  isPublicGroupRecord,
+  parseGroupUsersXML,
+  parseGroupXML,
+  parseNumericID,
+  parseStorageQuota,
+  renderGroupCreateAtom,
+  renderGroupUpdateAtom,
+  renderGroupUsersXML,
+  renderStorageAdminXML,
+  renderUserGroupsAtom,
+  requireGroup,
+  requireRoot,
+} from "../support";
 
 compatibility.get("/users/:userID/groups", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -22,7 +50,7 @@ compatibility.get("/users/:userID/groups", async (c) => {
   const apiKey = getRequestApiKey(c);
   const key = apiKey ? await createKeyStore(c.env).getKey(apiKey) : null;
   const visibleGroups =
-    key?.userID === userID && keyAllowsUserPermission(key.access, "library")
+    key?.userID === userID
       ? allGroups.filter(
           (group) =>
             (isPublicGroupRecord(group) && group.data.owner === userID) ||
@@ -31,12 +59,20 @@ compatibility.get("/users/:userID/groups", async (c) => {
       : allGroups.filter(
           (group) => isPublicGroupRecord(group) && group.data.owner === userID
         );
-  const groups = filterGroupsForRequest(c, visibleGroups as Array<{ data: Record<string, unknown> & { type?: string }; id: number }>);
+  const groups = filterGroupsForRequest(
+    c,
+    visibleGroups as Array<{
+      data: Record<string, unknown> & { type?: string };
+      id: number;
+    }>
+  );
   const headers = { "Total-Results": `${groups.length}` };
 
   if (c.req.query("format") === "versions") {
     return c.json(
-      Object.fromEntries(groups.map((group) => [group.id, getGroupVersion(group)])),
+      Object.fromEntries(
+        groups.map((group) => [group.id, getGroupVersion(group)])
+      ),
       200,
       headers
     );
@@ -58,7 +94,6 @@ compatibility.get("/users/:userID/groups", async (c) => {
   return c.json(responseGroups, 200, headers);
 });
 
-
 compatibility.get("/groups", async (c) => {
   const rootError = requireRoot(c);
   if (rootError) {
@@ -68,7 +103,10 @@ compatibility.get("/groups", async (c) => {
   const store = createCompatibilityStore(c.env);
   let groups = filterGroupsForRequest(
     c,
-    (await store.listGroups()) as Array<{ data: Record<string, unknown> & { type?: string }; id: number }>
+    (await store.listGroups()) as Array<{
+      data: Record<string, unknown> & { type?: string };
+      id: number;
+    }>
   );
   const q = c.req.query("q");
   if (q) {
@@ -78,13 +116,17 @@ compatibility.get("/groups", async (c) => {
         hasItems: (await store.listGroupItems(group.id)).items.length > 0,
       }))
     );
-    groups = populated.filter((entry) => entry.hasItems).map((entry) => entry.group);
+    groups = populated
+      .filter((entry) => entry.hasItems)
+      .map((entry) => entry.group);
   }
   const headers = { "Total-Results": `${groups.length}` };
 
   if (c.req.query("format") === "versions") {
     return c.json(
-      Object.fromEntries(groups.map((group) => [group.id, getGroupVersion(group)])),
+      Object.fromEntries(
+        groups.map((group) => [group.id, getGroupVersion(group)])
+      ),
       200,
       headers
     );
@@ -100,9 +142,9 @@ compatibility.get("/groups", async (c) => {
   return c.json(groups, 200, headers);
 });
 
-
-compatibility.get("/groups/:groupID", async (c) => {
-  const groupID = parseNumericID(c.req.param("groupID"));
+const getGroup = async (c: Context<{ Bindings: Bindings }>) => {
+  const groupIDParam = c.req.param("groupID");
+  const groupID = groupIDParam ? parseNumericID(groupIDParam) : null;
   if (groupID === null) {
     return c.text("Invalid groupID", 400);
   }
@@ -128,8 +170,10 @@ compatibility.get("/groups/:groupID", async (c) => {
   return c.json(response, 200, {
     "Last-Modified-Version": `${getGroupVersion(group)}`,
   });
-});
+};
 
+compatibility.get("/groups/:groupID", getGroup);
+compatibility.get("/groups/:groupID/", getGroup);
 
 compatibility.put("/groups/:groupID", async (c) => {
   const rootError = requireRoot(c);
@@ -156,7 +200,6 @@ compatibility.put("/groups/:groupID", async (c) => {
   });
 });
 
-
 compatibility.get("/users/:userID/storageadmin", async (c) => {
   const rootError = requireRoot(c);
   if (rootError) {
@@ -176,7 +219,6 @@ compatibility.get("/users/:userID/storageadmin", async (c) => {
     "Content-Type": "application/xml",
   });
 });
-
 
 compatibility.post("/users/:userID/storageadmin", async (c) => {
   const rootError = requireRoot(c);
@@ -209,7 +251,10 @@ compatibility.post("/users/:userID/storageadmin", async (c) => {
   try {
     quotaInput = parseStorageQuota(quotaValue);
   } catch (error) {
-    return c.text(error instanceof Error ? error.message : "Invalid quota", 400);
+    return c.text(
+      error instanceof Error ? error.message : "Invalid quota",
+      400
+    );
   }
 
   const store = createCompatibilityStore(c.env);
@@ -223,11 +268,14 @@ compatibility.post("/users/:userID/storageadmin", async (c) => {
 
   const quota = await store.setStorageQuota(userID, quotaInput, expiration);
 
-  return c.text(renderStorageAdminXML({ ...quota, usageBytes: currentUsageBytes }), 200, {
-    "Content-Type": "application/xml",
-  });
+  return c.text(
+    renderStorageAdminXML({ ...quota, usageBytes: currentUsageBytes }),
+    200,
+    {
+      "Content-Type": "application/xml",
+    }
+  );
 });
-
 
 compatibility.post("/groups", async (c) => {
   const rootError = requireRoot(c);
@@ -236,7 +284,10 @@ compatibility.post("/groups", async (c) => {
   }
 
   const data = parseGroupXML(await c.req.text());
-  const owner = typeof data.owner === "number" && Number.isFinite(data.owner) ? data.owner : 1;
+  const owner =
+    typeof data.owner === "number" && Number.isFinite(data.owner)
+      ? data.owner
+      : 1;
   const readString = (name: string, fallback: string) =>
     typeof data[name] === "string" ? data[name] : fallback;
 
@@ -270,7 +321,6 @@ compatibility.post("/groups", async (c) => {
     ...notificationHeaders(...notifications),
   });
 });
-
 
 compatibility.post("/groups/:groupID/users", async (c) => {
   const rootError = requireRoot(c);
@@ -309,7 +359,6 @@ compatibility.post("/groups/:groupID/users", async (c) => {
   });
 });
 
-
 compatibility.get("/groups/:groupID/users", async (c) => {
   const rootError = requireRoot(c);
   if (rootError) {
@@ -327,7 +376,6 @@ compatibility.get("/groups/:groupID/users", async (c) => {
     "Content-Type": "application/atom+xml",
   });
 });
-
 
 compatibility.put("/groups/:groupID/users/:userID", async (c) => {
   const rootError = requireRoot(c);
@@ -356,7 +404,10 @@ compatibility.put("/groups/:groupID/users/:userID", async (c) => {
     return c.text("User not provided", 400);
   }
   if (user.userID && user.userID !== userID) {
-    return c.text(`User ID ${user.userID} does not match user ID ${userID}`, 400);
+    return c.text(
+      `User ID ${user.userID} does not match user ID ${userID}`,
+      400
+    );
   }
 
   try {
@@ -373,7 +424,6 @@ compatibility.put("/groups/:groupID/users/:userID", async (c) => {
     "Content-Type": "application/atom+xml",
   });
 });
-
 
 compatibility.delete("/groups/:groupID/users/:userID", async (c) => {
   const rootError = requireRoot(c);
@@ -398,7 +448,6 @@ compatibility.delete("/groups/:groupID/users/:userID", async (c) => {
   });
 });
 
-
 compatibility.delete("/groups/:groupID", async (c) => {
   const rootError = requireRoot(c);
   if (rootError) {
@@ -415,7 +464,6 @@ compatibility.delete("/groups/:groupID", async (c) => {
     ...notificationHeaders(topicDeletedNotification(groupID)),
   });
 });
-
 
 compatibility.post("/groups/:groupID/clear", async (c) => {
   const rootError = requireRoot(c);
@@ -438,7 +486,6 @@ compatibility.post("/groups/:groupID/clear", async (c) => {
   clearMemorySettings("group", groupID);
   return c.body(null, 204);
 });
-
 
 compatibility.post("/users/:userID/clear", async (c) => {
   const rootError = requireRoot(c);

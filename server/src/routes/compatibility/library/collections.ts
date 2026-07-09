@@ -1,9 +1,30 @@
 import type { Context } from "hono";
 import type { Bindings } from "../../../bindings";
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getRequestedCollectionKeys, renderCollectionList, renderItemList, filterItemsForRequest, getIfUnmodifiedSinceVersion, normalizeObjectDeletedForWrite, upsertCollectionInLibrary, wantsAtomResponse, renderJSONAtomEntry, atomHeaders, buildWriteReport, isRecord, jsonValuesEqual, type ExistingObjectVersions, type ItemWriteFailures } from "../shared";
-import { createCollectionStore } from "../../../collections";
-import { createCompatibilityStore } from "../../../storage";
+import { createCollectionStore } from "../../../domain/collections";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
+import {
+  atomHeaders,
+  buildWriteReport,
+  type ExistingObjectVersions,
+  filterItemsForRequest,
+  getIfUnmodifiedSinceVersion,
+  getRequestedCollectionKeys,
+  type ItemWriteFailures,
+  isRecord,
+  jsonValuesEqual,
+  normalizeObjectDeletedForWrite,
+  parseNumericID,
+  renderCollectionList,
+  renderItemList,
+  renderJSONAtomEntry,
+  requireGroup,
+  requireGroupEdit,
+  requireUser,
+  requireUserWrite,
+  upsertCollectionInLibrary,
+  wantsAtomResponse,
+} from "../support";
 
 type LibraryType = "group" | "user";
 
@@ -21,6 +42,80 @@ const mergeWriteFailures = (
       target[index] = failure;
     }
   }
+};
+
+const parseCollectionItemKeysBody = async (
+  c: Context<{ Bindings: Bindings }>
+) =>
+  (await c.req.text())
+    .split(/\s+/)
+    .map((key) => key.trim())
+    .filter(Boolean);
+
+const updateCollectionItemMembership = async (
+  c: Context<{ Bindings: Bindings }>,
+  input: {
+    collectionKey: string;
+    libraryID: number;
+    libraryType: LibraryType;
+    mode: "add" | "remove";
+  }
+) => {
+  const collectionStore = createCollectionStore(c.env);
+  const collection = await collectionStore.getCollection(
+    input.libraryType,
+    input.libraryID,
+    input.collectionKey
+  );
+  if (!collection) {
+    return c.text("Collection not found", 404);
+  }
+
+  const itemKeys = await parseCollectionItemKeysBody(c);
+  if (!itemKeys.length) {
+    return c.body(null, 204, {
+      "Last-Modified-Version": `${collection.version}`,
+    });
+  }
+
+  const store = createCompatibilityStore(c.env);
+  const result =
+    input.libraryType === "user"
+      ? await store.listItems(input.libraryID, itemKeys)
+      : await store.listGroupItems(input.libraryID, itemKeys);
+  const byKey = new Map(result.items.map((item) => [item.key, item]));
+  const updates: Record<string, unknown>[] = [];
+
+  for (const itemKey of itemKeys) {
+    const item = byKey.get(itemKey);
+    if (!item) {
+      return c.text("Item not found", 404);
+    }
+    const collections = Array.isArray(item.data.collections)
+      ? item.data.collections.filter(
+          (key): key is string => typeof key === "string"
+        )
+      : [];
+    const nextCollections =
+      input.mode === "add"
+        ? [...new Set([...collections, input.collectionKey])]
+        : collections.filter((key) => key !== input.collectionKey);
+    updates.push({
+      ...item.data,
+      collections: nextCollections,
+      key: item.key,
+      version: item.version,
+    });
+  }
+
+  const writeResult =
+    input.libraryType === "user"
+      ? await store.createItems(input.libraryID, updates)
+      : await store.createGroupItems(input.libraryID, updates);
+
+  return c.body(null, 204, {
+    "Last-Modified-Version": `${writeResult.version}`,
+  });
 };
 
 const mapStoreFailuresToOriginalIndexes = (
@@ -62,7 +157,9 @@ const handleCollectionBatchWrite = async (
   const collectionStore = createCollectionStore(c.env);
   const library = await collectionStore.listCollections(
     input.libraryType,
-    input.libraryID
+    input.libraryID,
+    undefined,
+    { includeMeta: false }
   );
   const existingVersions: ExistingObjectVersions = new Map(
     library.collections.map((collection) => [
@@ -83,9 +180,7 @@ const handleCollectionBatchWrite = async (
   const finalCollections = rawCollections.map((object) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existingVersions.get(key) : undefined;
-    return current
-      ? { ...current.data, ...object, key }
-      : { ...object };
+    return current ? { ...current.data, ...object, key } : { ...object };
   });
 
   const unchanged: Record<string, string> = {};
@@ -113,15 +208,23 @@ const handleCollectionBatchWrite = async (
     ? await collectionStore.createCollections(
         input.libraryType,
         input.libraryID,
-        toWrite.map((entry) => entry.object)
+        toWrite.map((entry) => entry.object),
+        collectionPrecondition
       )
     : {
         failed: {} as ItemWriteFailures,
+        preconditionFailed: false,
         success: [] as string[],
         successful: [] as never[],
         unchanged: [] as Array<{ key: string }>,
         version: library.version,
       };
+
+  if (result.preconditionFailed) {
+    return c.text("Library has been modified", 412, {
+      "Last-Modified-Version": `${result.version}`,
+    });
+  }
 
   mergeWriteFailures(
     failed,
@@ -138,7 +241,8 @@ const handleCollectionBatchWrite = async (
   }
 
   const successfulWrites = toWrite.filter(
-    (entry, position) => !(position in result.failed) && !(entry.index in unchanged)
+    (entry, position) =>
+      !(position in result.failed || entry.index in unchanged)
   );
 
   return c.json(
@@ -180,7 +284,6 @@ const deleteSingleCollection = async (
   });
 };
 
-
 compatibility.get("/groups/:groupID/collections/:collectionKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -220,7 +323,6 @@ compatibility.get("/groups/:groupID/collections/:collectionKey", async (c) => {
     "Last-Modified-Version": `${objectVersion}`,
   });
 });
-
 
 compatibility.get(
   "/groups/:groupID/collections/:collectionKey/items/top",
@@ -269,7 +371,6 @@ compatibility.get(
   }
 );
 
-
 compatibility.get(
   "/groups/:groupID/collections/:collectionKey/items",
   async (c) => {
@@ -309,6 +410,49 @@ compatibility.get(
   }
 );
 
+compatibility.post(
+  "/groups/:groupID/collections/:collectionKey/items",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return updateCollectionItemMembership(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: groupID,
+      libraryType: "group",
+      mode: "add",
+    });
+  }
+);
+
+compatibility.delete(
+  "/groups/:groupID/collections/:collectionKey/items",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return updateCollectionItemMembership(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: groupID,
+      libraryType: "group",
+      mode: "remove",
+    });
+  }
+);
 
 compatibility.get("/groups/:groupID/collections", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -330,7 +474,6 @@ compatibility.get("/groups/:groupID/collections", async (c) => {
   return renderCollectionList(c, result.collections, result.version);
 });
 
-
 compatibility.post("/groups/:groupID/collections", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -347,7 +490,6 @@ compatibility.post("/groups/:groupID/collections", async (c) => {
     libraryType: "group",
   });
 });
-
 
 compatibility.put("/groups/:groupID/collections/:collectionKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -367,44 +509,48 @@ compatibility.put("/groups/:groupID/collections/:collectionKey", async (c) => {
   });
 });
 
+compatibility.patch(
+  "/groups/:groupID/collections/:collectionKey",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
 
-compatibility.patch("/groups/:groupID/collections/:collectionKey", async (c) => {
-  const groupID = parseNumericID(c.req.param("groupID"));
-  if (groupID === null) {
-    return c.text("Invalid groupID", 400);
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return upsertCollectionInLibrary(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: groupID,
+      libraryType: "group",
+      patchMode: true,
+    });
   }
+);
 
-  const store = createCompatibilityStore(c.env);
-  if (!(await requireGroupEdit(c, store, groupID))) {
-    return c.text("Invalid key", 403);
+compatibility.delete(
+  "/groups/:groupID/collections/:collectionKey",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return deleteSingleCollection(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: groupID,
+      libraryType: "group",
+    });
   }
-
-  return upsertCollectionInLibrary(c, {
-    collectionKey: c.req.param("collectionKey"),
-    libraryID: groupID,
-    libraryType: "group",
-    patchMode: true,
-  });
-});
-
-compatibility.delete("/groups/:groupID/collections/:collectionKey", async (c) => {
-  const groupID = parseNumericID(c.req.param("groupID"));
-  if (groupID === null) {
-    return c.text("Invalid groupID", 400);
-  }
-
-  const store = createCompatibilityStore(c.env);
-  if (!(await requireGroupEdit(c, store, groupID))) {
-    return c.text("Invalid key", 403);
-  }
-
-  return deleteSingleCollection(c, {
-    collectionKey: c.req.param("collectionKey"),
-    libraryID: groupID,
-    libraryType: "group",
-  });
-});
-
+);
 
 compatibility.delete("/groups/:groupID/collections", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -436,7 +582,6 @@ compatibility.delete("/groups/:groupID/collections", async (c) => {
     "Last-Modified-Version": `${result.version}`,
   });
 });
-
 
 compatibility.get("/users/:userID/collections/:collectionKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -477,7 +622,6 @@ compatibility.get("/users/:userID/collections/:collectionKey", async (c) => {
     "Last-Modified-Version": `${objectVersion}`,
   });
 });
-
 
 compatibility.get(
   "/users/:userID/collections/:collectionKey/items/top",
@@ -526,7 +670,6 @@ compatibility.get(
   }
 );
 
-
 compatibility.get(
   "/users/:userID/collections/:collectionKey/items",
   async (c) => {
@@ -555,17 +698,55 @@ compatibility.get(
       userID,
       c.req.param("collectionKey")
     );
-    const items = await filterItemsForRequest(
-      c,
-      "user",
-      userID,
-      result.items
-    );
+    const items = await filterItemsForRequest(c, "user", userID, result.items);
 
     return renderItemList(c, items, result.version);
   }
 );
 
+compatibility.post(
+  "/users/:userID/collections/:collectionKey/items",
+  async (c) => {
+    const userID = parseNumericID(c.req.param("userID"));
+    if (userID === null) {
+      return c.text("Invalid userID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireUserWrite(c, store, userID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return updateCollectionItemMembership(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: userID,
+      libraryType: "user",
+      mode: "add",
+    });
+  }
+);
+
+compatibility.delete(
+  "/users/:userID/collections/:collectionKey/items",
+  async (c) => {
+    const userID = parseNumericID(c.req.param("userID"));
+    if (userID === null) {
+      return c.text("Invalid userID", 400);
+    }
+
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireUserWrite(c, store, userID))) {
+      return c.text("Invalid key", 403);
+    }
+
+    return updateCollectionItemMembership(c, {
+      collectionKey: c.req.param("collectionKey"),
+      libraryID: userID,
+      libraryType: "user",
+      mode: "remove",
+    });
+  }
+);
 
 compatibility.get("/users/:userID/collections", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -587,7 +768,6 @@ compatibility.get("/users/:userID/collections", async (c) => {
   return renderCollectionList(c, result.collections, result.version);
 });
 
-
 compatibility.post("/users/:userID/collections", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -604,7 +784,6 @@ compatibility.post("/users/:userID/collections", async (c) => {
     libraryType: "user",
   });
 });
-
 
 compatibility.put("/users/:userID/collections/:collectionKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -623,7 +802,6 @@ compatibility.put("/users/:userID/collections/:collectionKey", async (c) => {
     libraryType: "user",
   });
 });
-
 
 compatibility.patch("/users/:userID/collections/:collectionKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -661,7 +839,6 @@ compatibility.delete("/users/:userID/collections/:collectionKey", async (c) => {
     libraryType: "user",
   });
 });
-
 
 compatibility.delete("/users/:userID/collections", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

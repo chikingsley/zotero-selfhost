@@ -1,12 +1,20 @@
-import { parseNumericID, requireUser, requireGroup, renderTagList, getURLSearchParams, settingHeaders, getRequestedSearchKeys, getSearchSinceVersion, renderSearchList } from "../shared";
-import { createSearchStore } from "../../../searches";
-import { createCompatibilityStore } from "../../../storage";
-import { listTagsForRequest } from "../../../tags";
+import { createSearchStore } from "../../../domain/searches";
+import { createCompatibilityStore } from "../../../domain/storage";
+import { listTagsForRequest } from "../../../domain/tags";
 import { compatibility } from "../router";
+import {
+  getRequestedSearchKeys,
+  getSearchSinceVersion,
+  getURLSearchParams,
+  parseNumericID,
+  renderSearchList,
+  renderTagList,
+  requireGroup,
+  requireUser,
+  settingHeaders,
+} from "../support";
 
-
-
-compatibility.on("HEAD","/groups/:groupID/tags", async (c) => {
+compatibility.on("HEAD", "/groups/:groupID/tags", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
     return c.text("Invalid groupID", 400);
@@ -23,8 +31,7 @@ compatibility.on("HEAD","/groups/:groupID/tags", async (c) => {
   return renderTagList(c, tags, result.version);
 });
 
-
-compatibility.on("HEAD","/users/:userID/tags", async (c) => {
+compatibility.on("HEAD", "/users/:userID/tags", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
     return c.text("Invalid userID", 400);
@@ -41,8 +48,7 @@ compatibility.on("HEAD","/users/:userID/tags", async (c) => {
   return renderTagList(c, tags, result.version);
 });
 
-
-compatibility.on("HEAD","/groups/:groupID/searches/:searchKey", async (c) => {
+compatibility.on("HEAD", "/groups/:groupID/searches/:searchKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
     return c.text("Invalid groupID", 400);
@@ -53,7 +59,11 @@ compatibility.on("HEAD","/groups/:groupID/searches/:searchKey", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const result = await createSearchStore(c.env).getSearch("group", groupID, c.req.param("searchKey"));
+  const result = await createSearchStore(c.env).getSearch(
+    "group",
+    groupID,
+    c.req.param("searchKey")
+  );
   if (!result) {
     return c.text("Search not found", 404);
   }
@@ -61,8 +71,7 @@ compatibility.on("HEAD","/groups/:groupID/searches/:searchKey", async (c) => {
   return c.body(null, 200, settingHeaders(result.search.version));
 });
 
-
-compatibility.on("HEAD","/groups/:groupID/searches", async (c) => {
+compatibility.on("HEAD", "/groups/:groupID/searches", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
     return c.text("Invalid groupID", 400);
@@ -81,8 +90,7 @@ compatibility.on("HEAD","/groups/:groupID/searches", async (c) => {
   return renderSearchList(c, result.searches, result.version);
 });
 
-
-compatibility.on("HEAD","/users/:userID/searches/:searchKey", async (c) => {
+compatibility.on("HEAD", "/users/:userID/searches/:searchKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
     return c.text("Invalid userID", 400);
@@ -93,7 +101,11 @@ compatibility.on("HEAD","/users/:userID/searches/:searchKey", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  const result = await createSearchStore(c.env).getSearch("user", userID, c.req.param("searchKey"));
+  const result = await createSearchStore(c.env).getSearch(
+    "user",
+    userID,
+    c.req.param("searchKey")
+  );
   if (!result) {
     return c.text("Search not found", 404);
   }
@@ -101,8 +113,7 @@ compatibility.on("HEAD","/users/:userID/searches/:searchKey", async (c) => {
   return c.body(null, 200, settingHeaders(result.search.version));
 });
 
-
-compatibility.on("HEAD","/users/:userID/searches", async (c) => {
+compatibility.on("HEAD", "/users/:userID/searches", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
     return c.text("Invalid userID", 400);

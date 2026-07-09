@@ -1,8 +1,17 @@
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, settingHeaders, getRequiredSinceVersion, getItemKeysForDelete, deleteItemsForLibrary } from "../shared";
-import { createDeletedStore } from "../../../deleted";
-import { createCompatibilityStore } from "../../../storage";
+import { createDeletedStore } from "../../../domain/deleted";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  deleteItemsForLibrary,
+  getItemKeysForDelete,
+  getRequiredSinceVersion,
+  parseNumericID,
+  requireGroup,
+  requireGroupEdit,
+  requireUser,
+  requireUserWrite,
+  settingHeaders,
+} from "../support";
 
 compatibility.get("/groups/:groupID/deleted", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -29,7 +38,6 @@ compatibility.get("/groups/:groupID/deleted", async (c) => {
   return c.json(result.deleted, 200, settingHeaders(result.version));
 });
 
-
 compatibility.get("/users/:userID/deleted", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -55,7 +63,6 @@ compatibility.get("/users/:userID/deleted", async (c) => {
   return c.json(result.deleted, 200, settingHeaders(result.version));
 });
 
-
 compatibility.delete("/groups/:groupID/items/:itemKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -74,7 +81,6 @@ compatibility.delete("/groups/:groupID/items/:itemKey", async (c) => {
     store,
   });
 });
-
 
 compatibility.delete("/groups/:groupID/items", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -95,7 +101,6 @@ compatibility.delete("/groups/:groupID/items", async (c) => {
   });
 });
 
-
 compatibility.delete("/users/:userID/items/:itemKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -114,7 +119,6 @@ compatibility.delete("/users/:userID/items/:itemKey", async (c) => {
     store,
   });
 });
-
 
 compatibility.delete("/users/:userID/items", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

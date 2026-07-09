@@ -1,15 +1,23 @@
-import { getCreatorFields, getItemFields, getItemTypeCreatorTypes, getItemTypeFields, getItemTypes, validItemTypes } from "../../../mappings";
-import { getItemTemplate, isSupportedAnnotationType, isSupportedAttachmentLinkMode } from "../../../zotero";
+import {
+  getCreatorFields,
+  getItemFields,
+  getItemTypeCreatorTypes,
+  getItemTypeFields,
+  getItemTypes,
+  validItemTypes,
+} from "../../../domain/mappings";
+import {
+  getItemTemplate,
+  isSupportedAnnotationType,
+  isSupportedAttachmentLinkMode,
+} from "../../../domain/zotero";
 import { compatibility } from "../router";
-
 
 compatibility.get("/itemTypes", (c) =>
   c.json(getItemTypes(c.req.query("locale") ?? "en-US"))
 );
 
-
 compatibility.get("/itemFields", (c) => c.json(getItemFields()));
-
 
 compatibility.get("/itemTypeFields", (c) => {
   const itemType = c.req.query("itemType");
@@ -25,7 +33,6 @@ compatibility.get("/itemTypeFields", (c) => {
   return c.json(fields);
 });
 
-
 compatibility.get("/itemTypeCreatorTypes", (c) => {
   const itemType = c.req.query("itemType");
   if (!itemType) {
@@ -38,9 +45,7 @@ compatibility.get("/itemTypeCreatorTypes", (c) => {
   return c.json(getItemTypeCreatorTypes(itemType));
 });
 
-
 compatibility.get("/creatorFields", (c) => c.json(getCreatorFields()));
-
 
 compatibility.get("/items/new", (c) => {
   const itemType = c.req.query("itemType");

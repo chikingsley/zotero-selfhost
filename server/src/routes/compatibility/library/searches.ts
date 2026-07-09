@@ -1,9 +1,35 @@
 import type { Context } from "hono";
 import type { Bindings } from "../../../bindings";
-import { parseNumericID, requireUser, requireUserWrite, requireGroup, requireGroupEdit, getIfUnmodifiedSinceVersion, checkSingleObjectWriteVersion, normalizeObjectDeletedForWrite, renderJSONAtomEntry, atomHeaders, wantsAtomResponse, isHeadRequest, settingHeaders, isSettingsObject, getRequestedSearchKeys, getSearchSinceVersion, withSearchSchema, renderSearchList, parseSearchWriteBody, buildWriteReport, evaluateBatchWritePreconditions, isRecord, jsonValuesEqual, type ExistingObjectVersions, type ItemWriteFailures } from "../shared";
-import { createSearchStore } from "../../../searches";
-import { createCompatibilityStore } from "../../../storage";
+import { createSearchStore } from "../../../domain/searches";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
+import {
+  atomHeaders,
+  buildWriteReport,
+  checkSingleObjectWriteVersion,
+  type ExistingObjectVersions,
+  evaluateBatchWritePreconditions,
+  getIfUnmodifiedSinceVersion,
+  getRequestedSearchKeys,
+  getSearchSinceVersion,
+  type ItemWriteFailures,
+  isHeadRequest,
+  isRecord,
+  isSettingsObject,
+  jsonValuesEqual,
+  normalizeObjectDeletedForWrite,
+  parseNumericID,
+  parseSearchWriteBody,
+  renderJSONAtomEntry,
+  renderSearchList,
+  requireGroup,
+  requireGroupEdit,
+  requireUser,
+  requireUserWrite,
+  settingHeaders,
+  wantsAtomResponse,
+  withSearchSchema,
+} from "../support";
 
 type LibraryType = "group" | "user";
 
@@ -60,7 +86,10 @@ const handleSearchBatchWrite = async (
   });
 
   const searchStore = createSearchStore(c.env);
-  const library = await searchStore.listSearches(input.libraryType, input.libraryID);
+  const library = await searchStore.listSearches(
+    input.libraryType,
+    input.libraryID
+  );
   const existingVersions: ExistingObjectVersions = new Map(
     library.searches.map((search) => [
       search.key,
@@ -75,16 +104,18 @@ const handleSearchBatchWrite = async (
     "Search"
   );
   if (precondition.libraryPreconditionFailed) {
-    return c.text("Library has been modified", 412, settingHeaders(library.version));
+    return c.text(
+      "Library has been modified",
+      412,
+      settingHeaders(library.version)
+    );
   }
   mergeWriteFailures(failed, precondition.failed);
 
   const finalSearches = rawSearches.map((object) => {
     const key = typeof object.key === "string" ? object.key : "";
     const current = key ? existingVersions.get(key) : undefined;
-    return current
-      ? { ...current.data, ...object, key }
-      : { ...object };
+    return current ? { ...current.data, ...object, key } : { ...object };
   });
 
   const unchanged: Record<string, string> = { ...precondition.unchanged };
@@ -129,7 +160,11 @@ const handleSearchBatchWrite = async (
         version: library.version,
       };
   if (result.preconditionFailed) {
-    return c.text("Library has been modified", 412, settingHeaders(result.version));
+    return c.text(
+      "Library has been modified",
+      412,
+      settingHeaders(result.version)
+    );
   }
 
   mergeWriteFailures(
@@ -186,9 +221,12 @@ compatibility.get("/groups/:groupID/searches/:searchKey", async (c) => {
     );
   }
 
-  return c.json(withSearchSchema(c, result.search), 200, settingHeaders(result.search.version));
+  return c.json(
+    withSearchSchema(c, result.search),
+    200,
+    settingHeaders(result.search.version)
+  );
 });
-
 
 compatibility.put("/groups/:groupID/searches/:searchKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -214,12 +252,16 @@ compatibility.put("/groups/:groupID/searches/:searchKey", async (c) => {
   const versionCheck = checkSingleObjectWriteVersion(
     c,
     "Search",
-    existing ? existing.search.version ?? 0 : null,
+    existing ? (existing.search.version ?? 0) : null,
     body,
     "PUT"
   );
   if (!versionCheck.ok) {
-    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+    return c.text(
+      versionCheck.message,
+      versionCheck.code,
+      versionCheck.headers
+    );
   }
 
   const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
@@ -244,7 +286,6 @@ compatibility.put("/groups/:groupID/searches/:searchKey", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.patch("/groups/:groupID/searches/:searchKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -271,12 +312,16 @@ compatibility.patch("/groups/:groupID/searches/:searchKey", async (c) => {
   const versionCheck = checkSingleObjectWriteVersion(
     c,
     "Search",
-    existing ? existing.search.version ?? 0 : null,
+    existing ? (existing.search.version ?? 0) : null,
     body,
     "PATCH"
   );
   if (!versionCheck.ok) {
-    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+    return c.text(
+      versionCheck.message,
+      versionCheck.code,
+      versionCheck.headers
+    );
   }
 
   const searchData = normalizeObjectDeletedForWrite(
@@ -300,7 +345,6 @@ compatibility.patch("/groups/:groupID/searches/:searchKey", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.delete("/groups/:groupID/searches/:searchKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -326,7 +370,6 @@ compatibility.delete("/groups/:groupID/searches/:searchKey", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 compatibility.get("/groups/:groupID/searches", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -346,7 +389,6 @@ compatibility.get("/groups/:groupID/searches", async (c) => {
   return renderSearchList(c, result.searches, result.version);
 });
 
-
 compatibility.post("/groups/:groupID/searches", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -363,7 +405,6 @@ compatibility.post("/groups/:groupID/searches", async (c) => {
     libraryType: "group",
   });
 });
-
 
 compatibility.delete("/groups/:groupID/searches", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -388,7 +429,6 @@ compatibility.delete("/groups/:groupID/searches", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.get("/users/:userID/searches/:searchKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -428,9 +468,12 @@ compatibility.get("/users/:userID/searches/:searchKey", async (c) => {
     );
   }
 
-  return c.json(withSearchSchema(c, result.search), 200, settingHeaders(result.search.version));
+  return c.json(
+    withSearchSchema(c, result.search),
+    200,
+    settingHeaders(result.search.version)
+  );
 });
-
 
 compatibility.put("/users/:userID/searches/:searchKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -456,12 +499,16 @@ compatibility.put("/users/:userID/searches/:searchKey", async (c) => {
   const versionCheck = checkSingleObjectWriteVersion(
     c,
     "Search",
-    existing ? existing.search.version ?? 0 : null,
+    existing ? (existing.search.version ?? 0) : null,
     body,
     "PUT"
   );
   if (!versionCheck.ok) {
-    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+    return c.text(
+      versionCheck.message,
+      versionCheck.code,
+      versionCheck.headers
+    );
   }
 
   const searchData = normalizeObjectDeletedForWrite(versionCheck.editable);
@@ -486,7 +533,6 @@ compatibility.put("/users/:userID/searches/:searchKey", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.patch("/users/:userID/searches/:searchKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -513,12 +559,16 @@ compatibility.patch("/users/:userID/searches/:searchKey", async (c) => {
   const versionCheck = checkSingleObjectWriteVersion(
     c,
     "Search",
-    existing ? existing.search.version ?? 0 : null,
+    existing ? (existing.search.version ?? 0) : null,
     body,
     "PATCH"
   );
   if (!versionCheck.ok) {
-    return c.text(versionCheck.message, versionCheck.code, versionCheck.headers);
+    return c.text(
+      versionCheck.message,
+      versionCheck.code,
+      versionCheck.headers
+    );
   }
 
   const searchData = normalizeObjectDeletedForWrite(
@@ -542,7 +592,6 @@ compatibility.patch("/users/:userID/searches/:searchKey", async (c) => {
 
   return c.body(null, 204, settingHeaders(result.version));
 });
-
 
 compatibility.delete("/users/:userID/searches/:searchKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
@@ -568,7 +617,6 @@ compatibility.delete("/users/:userID/searches/:searchKey", async (c) => {
   return c.body(null, 204, settingHeaders(result.version));
 });
 
-
 compatibility.get("/users/:userID/searches", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -588,7 +636,6 @@ compatibility.get("/users/:userID/searches", async (c) => {
   return renderSearchList(c, result.searches, result.version);
 });
 
-
 compatibility.post("/users/:userID/searches", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -605,7 +652,6 @@ compatibility.post("/users/:userID/searches", async (c) => {
     libraryType: "user",
   });
 });
-
 
 compatibility.delete("/users/:userID/searches", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

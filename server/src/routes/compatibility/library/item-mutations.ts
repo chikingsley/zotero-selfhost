@@ -1,7 +1,11 @@
-import { parseNumericID, requireUserWrite, requireGroupEdit, updateItemInLibrary } from "../shared";
-import { createCompatibilityStore } from "../../../storage";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  parseNumericID,
+  requireGroupEdit,
+  requireUserWrite,
+  updateItemInLibrary,
+} from "../support";
 
 compatibility.patch("/groups/:groupID/items/:itemKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -23,7 +27,6 @@ compatibility.patch("/groups/:groupID/items/:itemKey", async (c) => {
   });
 });
 
-
 compatibility.put("/groups/:groupID/items/:itemKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -44,7 +47,6 @@ compatibility.put("/groups/:groupID/items/:itemKey", async (c) => {
   });
 });
 
-
 compatibility.patch("/users/:userID/items/:itemKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));
   if (userID === null) {
@@ -64,7 +66,6 @@ compatibility.patch("/users/:userID/items/:itemKey", async (c) => {
     store,
   });
 });
-
 
 compatibility.put("/users/:userID/items/:itemKey", async (c) => {
   const userID = parseNumericID(c.req.param("userID"));

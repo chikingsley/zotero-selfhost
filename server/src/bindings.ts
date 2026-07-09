@@ -4,6 +4,6 @@ export interface Bindings {
   RAW_FILE_URL_SECRET?: string;
   ROOT_PASSWORD?: string;
   ROOT_USERNAME?: string;
+  SELFHOST_TEST_API_KEY?: string;
   TTS_TEST_KEY?: string;
-  ZOTERO_API_KEY?: string;
 }

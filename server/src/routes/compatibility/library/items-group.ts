@@ -1,13 +1,21 @@
-import { parseNumericID, requireGroup, requireGroupEdit, handleItemBatchWrite, attachItemMeta, attachItemsMeta, renderItemList, renderItemListHead, renderSingleItem, filterItemsForRequest, handleWebTranslationWrite, tagWriteFailureResponse, type ItemWriteFailures, mergeItemWriteFailures, collectionFailureResponse, getIfUnmodifiedSinceVersion, getSinceOrNewerVersion, hasJSONContentType, normalizeItemBatchDeletedForWrite, validateItemBatchCreatorsForWrite, validateItemBatchAnnotationsForWrite, validateItemBatchParentsForWrite, validateItemBatchAnnotationParentsForWrite, syncRelatedItemRelations } from "../shared";
-import { createCollectionStore } from "../../../collections";
-import { createFullTextStore } from "../../../fulltext";
-import { createCompatibilityStore } from "../../../storage";
-import { validateItemBatchRelationsForWrite } from "../../../relations";
-import { validateItemBatchNotesForWrite } from "../../../notes";
-import { notificationHeaders, topicUpdatedNotification } from "../../../notifications";
-import { normalizeItemBatchTagsForWrite } from "../../../tags";
+import { createFullTextStore } from "../../../domain/fulltext";
+import { createCompatibilityStore } from "../../../domain/storage";
 import { compatibility } from "../router";
-
+import {
+  attachItemMeta,
+  attachItemsMeta,
+  filterItemsForRequest,
+  getIfUnmodifiedSinceVersion,
+  getSinceOrNewerVersion,
+  handleItemBatchWrite,
+  hasJSONContentType,
+  parseNumericID,
+  renderItemList,
+  renderItemListHead,
+  renderSingleItem,
+  requireGroup,
+  requireGroupEdit,
+} from "../support";
 
 compatibility.get("/groups/:groupID/items/:itemKey", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -48,7 +56,6 @@ compatibility.get("/groups/:groupID/items/:itemKey", async (c) => {
   );
 });
 
-
 compatibility.get("/groups/:groupID/items/:itemKey/fulltext", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -74,7 +81,6 @@ compatibility.get("/groups/:groupID/items/:itemKey/fulltext", async (c) => {
     "Last-Modified-Version": `${version}`,
   });
 });
-
 
 compatibility.put("/groups/:groupID/items/:itemKey/fulltext", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -109,7 +115,6 @@ compatibility.put("/groups/:groupID/items/:itemKey/fulltext", async (c) => {
   });
 });
 
-
 compatibility.get("/groups/:groupID/fulltext/index", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
@@ -121,9 +126,10 @@ compatibility.get("/groups/:groupID/fulltext/index", async (c) => {
     return c.text("Invalid key", 403);
   }
 
-  return c.json({ status: "indexed" });
+  return c.json(
+    await createFullTextStore(c.env).getIndexStatus("group", groupID)
+  );
 });
-
 
 compatibility.get("/groups/:groupID/fulltext", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -146,7 +152,6 @@ compatibility.get("/groups/:groupID/fulltext", async (c) => {
     "Last-Modified-Version": `${result.version}`,
   });
 });
-
 
 compatibility.post("/groups/:groupID/fulltext", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -178,14 +183,22 @@ compatibility.post("/groups/:groupID/fulltext", async (c) => {
     preconditionVersion
   );
   if (result.preconditionFailed) {
-    return c.text("Library has been modified", 412);
+    return c.text("Library has been modified", 412, {
+      "Last-Modified-Version": `${result.version}`,
+    });
   }
 
   return c.json(
     {
       failed: result.failed,
       success: result.success,
-      successful: result.successful,
+      successful: Object.fromEntries(
+        Object.entries(result.successful).map(([index, record]) => [
+          index,
+          { ...record, key: record.itemKey },
+        ])
+      ),
+      unchanged: {},
     },
     200,
     {
@@ -194,8 +207,7 @@ compatibility.post("/groups/:groupID/fulltext", async (c) => {
   );
 });
 
-
-compatibility.on("HEAD","/groups/:groupID/items", async (c) => {
+compatibility.on("HEAD", "/groups/:groupID/items", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
   if (groupID === null) {
     return c.text("Invalid groupID", 400);
@@ -212,7 +224,6 @@ compatibility.on("HEAD","/groups/:groupID/items", async (c) => {
 
   return renderItemListHead(c, items, result.version);
 });
-
 
 compatibility.get("/groups/:groupID/items", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));
@@ -249,7 +260,6 @@ compatibility.get("/groups/:groupID/items", async (c) => {
     result.version
   );
 });
-
 
 compatibility.post("/groups/:groupID/items", async (c) => {
   const groupID = parseNumericID(c.req.param("groupID"));

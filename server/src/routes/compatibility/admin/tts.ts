@@ -1,9 +1,15 @@
-import { ttsVoices, validTTSVoices, requireTTSAccess, getTTSTestKey, getTTSAudioID, localSilentWav, isRecord } from "../shared";
 import { compatibility } from "../router";
-
+import {
+  getTTSAudioID,
+  getTTSTestKey,
+  isRecord,
+  localSilentWav,
+  requireTTSAccess,
+  ttsVoices,
+  validTTSVoices,
+} from "../support";
 
 compatibility.get("/tts/voices", (c) => c.json(ttsVoices));
-
 
 compatibility.get("/tts/credits", (c) =>
   c.json({
@@ -11,7 +17,6 @@ compatibility.get("/tts/credits", (c) =>
     standardCreditsRemaining: 1_000_000,
   })
 );
-
 
 compatibility.post("/tts/speak", async (c) => {
   if (!(await requireTTSAccess(c))) {
@@ -39,7 +44,6 @@ compatibility.post("/tts/speak", async (c) => {
   const audioID = getTTSAudioID(body.voice, body.text);
   return c.redirect(`${url.origin}/tts/audio/${audioID}.wav`, 302);
 });
-
 
 compatibility.get("/tts/audio/:audioID", (c) =>
   c.body(localSilentWav.buffer.slice(0), 200, {

@@ -1,32 +1,35 @@
 # Known Differences vs the Official Dataserver
 
-Deliberate or environment-bound deviations. Everything else is tracked as a
-plain test failure in `candidate-status.md`.
+The current deployed Cloudflare D1/R2 baseline is green for every official v3
+test that runs: `451 passing`, `22 pending`, `0 failing`.
 
-## Environment-bound (not fixable in local in-memory mode)
+This file tracks accepted differences and harness caveats, not open failures.
 
-- **HTTPS S3-style download URLs** (`file` slice): the official server
-  redirects file downloads to `https://<bucket>/<hash>/…` S3 URLs. The local
-  candidate serves signed HTTP URLs from its own origin. One official test
-  asserts the `https://` S3 URL shape and fetches it; it needs TLS plus an
-  S3-compatible store (R2/MinIO) in front of the candidate.
-- **Old-style S3 filename test** (`file` slice): seeds S3 directly with the
-  AWS SDK before calling the API; requires real S3 credentials.
-- **`test.pdf` exists-dedupe test** (`file` slice): the harness mangles the
-  binary body via string concatenation; officially the test only passes when
-  S3 already holds the file from a previous run (`exists=1` short-circuit).
-  On a fresh store it cannot pass; treated as a flaky oracle datapoint.
+## Upstream-Pending Tests
 
-## Deliberate scope choices
+- **Schema legacy-client cases**: the official JavaScript test file marks these
+  cases skipped, matching the skipped PHP originals.
+- **TTS suite**: the official test harness skips the suite when `ttsTestKey` is
+  not configured. The server has deterministic TTS compatibility routes, but
+  real speech synthesis is not part of the current product.
 
-- **Partial uploads (bsdiff/xdelta/vcdiff)**: implemented via WASM, but the
-  official tests self-skip when the CLI tools are absent. Not part of the
-  client contract (clients fall back to full-file upload).
-- **TTS**: deterministic stub (voices/credits/speak/audio) — real speech
-  synthesis needs a provider; no real client depends on it.
-- **Web translation**: local shim answering the official test URLs; a real
-  deployment would run Zotero's translation-server.
-- **Notifications**: debug headers only; no SNS/stream fan-out service.
-- **D1/R2 (Cloudflare) storage**: the memory store is the oracle-verified
-  path today. The D1 store receives parity updates but is not yet
-  oracle-tested end to end.
+## Local Harness Caveats
+
+- **In-memory `file` slice**: the fast local memory server cannot satisfy the
+  S3/R2-specific file tests that require real object storage credentials and URL
+  shapes. The deployed Cloudflare D1/R2 path is the compatibility baseline for
+  file behavior.
+- **Partial-update tools**: the official file tests skip some optional
+  `bsdiff`, `xdelta3`, and `vcdiff` CLI subcases when those tools are not
+  installed locally. The Worker bundles WASM support for the supported
+  partial-update algorithms, and the official file test passes.
+
+## Deliberate Product Scope
+
+- **TTS**: deterministic compatibility stub unless a future product decision
+  adds a real speech provider.
+- **Web translation**: local compatibility behavior for the official tests; a
+  production translation feature would need a real translation service decision.
+- **Notifications**: API-compatible notification headers are implemented for
+  the official tests. A separate realtime/SNS-style fan-out service is not part
+  of the current server product.

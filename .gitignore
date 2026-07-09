@@ -17,13 +17,14 @@ coverage
 
 # caches/logs
 .cache
+.wrangler
 *.tsbuildinfo
 *.log
 
 # macOS
 .DS_Store
 
-# upstream reference clones — third-party AGPL code, re-clone per references/sources.md
+# upstream reference clones — third-party AGPL code, re-clone per compatibility/README.md
 references/dataserver/
 references/zotero-selfhost/
 references/zotprime/
