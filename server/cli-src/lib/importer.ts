@@ -4,7 +4,7 @@ import {
   parsePossibleJSON,
   requireRecord,
   ZoteroAPIClient,
-} from "./http.mjs";
+} from "./http.ts";
 import {
   headerVersion,
   inventoryObjectCount,
@@ -13,20 +13,20 @@ import {
   readInventory,
   readSnapshot,
   remapSnapshotUserIdentity,
-} from "./importer-data.mjs";
+} from "./importer-data.ts";
 import {
   applyRecoveryManifest,
   cleanMd5,
   importFiles,
-} from "./importer-files.mjs";
+} from "./importer-files.ts";
 import {
   defaultImportStatePath,
   loadOrCreateImportState,
   resetImportState,
   saveImportState,
-} from "./importer-state.mjs";
+} from "./importer-state.ts";
 
-export { defaultImportStatePath, readImportState } from "./importer-state.mjs";
+export { defaultImportStatePath, readImportState } from "./importer-state.ts";
 
 export const runImport = async ({
   execute = false,
@@ -227,7 +227,15 @@ const writeObjectBatches = async ({
     }
     assertSuccessfulWriteReport(body, currentBatch, stateKey);
     targetLibraryVersion = headerVersion(response) ?? targetLibraryVersion + 1;
-    state.completed[stateKey].push(...currentBatch.map((object) => object.key));
+    state.completed[stateKey].push(
+      ...currentBatch.map((object) => {
+        const record = requireRecord(object, `${stateKey} write object`);
+        if (typeof record.key !== "string") {
+          throw new Error(`${stateKey} write object did not contain a key.`);
+        }
+        return record.key;
+      })
+    );
     saveImportState(statePath, state);
   }
   return targetLibraryVersion;
@@ -344,7 +352,9 @@ const verifyImport = async ({
       state.completed.files.map((entry) => [entry.key, entry])
     );
     for (const attachment of snapshot.attachments) {
-      const expected = fileState.get(attachment.key);
+      const expected = fileState.get(attachment.key) as
+        | Record<string, unknown>
+        | undefined;
       if (!expected) {
         throw new Error(
           `Attachment ${attachment.key} was not recorded as imported.`
@@ -367,6 +377,11 @@ const verifyImport = async ({
       const md5 = cleanMd5(
         response.headers.get("Zotero-File-MD5") ?? response.headers.get("ETag")
       );
+      if (typeof expected.itemMd5 !== "string") {
+        throw new Error(
+          `Attachment ${attachment.key} import state omitted its item MD5.`
+        );
+      }
       if (md5 && md5 !== expected.itemMd5) {
         throw new Error(
           `Attachment ${attachment.key} target MD5 ${md5} does not match ${expected.itemMd5}.`
@@ -423,7 +438,11 @@ const assertSourceUnchanged = async (client, userID, snapshot) => {
 const getKeyInfo = async (client, label) => {
   const { body } = await client.json("/keys/current");
   const info = requireRecord(body, `${label} key check`);
-  if (!Number.isInteger(info.userID) || info.userID < 1) {
+  if (
+    typeof info.userID !== "number" ||
+    !Number.isInteger(info.userID) ||
+    info.userID < 1
+  ) {
     throw new Error(`${label} key check did not return a valid userID.`);
   }
   return info;
@@ -565,8 +584,8 @@ const stableValue = (value) => {
   return value;
 };
 
-const batches = (values, size) => {
-  const result = [];
+const batches = <T>(values: T[], size: number): T[][] => {
+  const result: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
     result.push(values.slice(index, index + size));
   }

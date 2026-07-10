@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { ZoteroAPIClient } from "../cli/lib/http.mjs";
+import { requireRecord, ZoteroAPIClient } from "../cli-src/lib/http.ts";
 
 const apiKey = process.env.SELFHOST_API_KEY_FILE
   ? readFileSync(process.env.SELFHOST_API_KEY_FILE, "utf8").trim()
@@ -15,8 +15,9 @@ if (!apiKey) {
 
 const client = new ZoteroAPIClient({ apiKey, baseURL });
 const owner = await client.json("/keys/current");
-const userID = owner.body.userID;
-if (!Number.isSafeInteger(userID)) {
+const ownerRecord = requireRecord(owner.body, "Production owner key");
+const userID = ownerRecord.userID;
+if (typeof userID !== "number" || !Number.isSafeInteger(userID)) {
   throw new Error("The production key did not return a user ID");
 }
 
@@ -48,13 +49,13 @@ const uploads = [
   },
 ];
 
-const createdKeys = [];
-let latestVersion = null;
+const createdKeys: string[] = [];
+let latestVersion: number | null = null;
 try {
   const templateResponse = await client.json(
     "/items/new?itemType=attachment&linkMode=imported_file"
   );
-  const template = templateResponse.body;
+  const template = requireRecord(templateResponse.body, "Attachment template");
   const items = uploads.map((upload) => ({
     ...template,
     contentType: upload.contentType,
@@ -74,7 +75,9 @@ try {
     [200]
   );
   for (const index of ["0", "1"]) {
-    const key = create.body.success?.[index];
+    const createRecord = requireRecord(create.body, "Attachment create report");
+    const success = requireRecord(createRecord.success, "Attachment successes");
+    const key = success[index];
     if (typeof key !== "string") {
       throw new Error(`Could not create disposable attachment ${index}`);
     }
@@ -104,16 +107,42 @@ try {
       },
       [200]
     );
-    const { transfer, uploadKey } = authorization.body;
-    if (!(transfer && typeof uploadKey === "string")) {
+    const authorizationRecord = requireRecord(
+      authorization.body,
+      `Upload authorization for ${itemKey}`
+    );
+    const transfer = requireRecord(
+      authorizationRecord.transfer,
+      `Upload transfer for ${itemKey}`
+    );
+    const uploadKey = authorizationRecord.uploadKey;
+    if (typeof uploadKey !== "string") {
       throw new Error(`Upload authorization for ${itemKey} was incomplete`);
     }
 
-    const completedParts = [];
-    if (transfer.kind === "single") {
+    const completedParts: Array<{ etag: string; partNumber: number }> = [];
+    if (
+      transfer.kind === "single" &&
+      typeof transfer.url === "string" &&
+      isHeadersInit(transfer.headers)
+    ) {
       await putWithRetry(transfer.url, transfer.headers, upload.bytes);
     } else if (transfer.kind === "multipart") {
-      for (const part of transfer.parts) {
+      if (
+        !Array.isArray(transfer.parts) ||
+        typeof transfer.partSizeBytes !== "number"
+      ) {
+        throw new Error(`Multipart transfer for ${itemKey} was incomplete`);
+      }
+      for (const rawPart of transfer.parts) {
+        const part = requireRecord(rawPart, `Multipart part for ${itemKey}`);
+        if (
+          typeof part.partNumber !== "number" ||
+          typeof part.url !== "string" ||
+          !isHeadersInit(part.headers)
+        ) {
+          throw new Error(`Multipart part for ${itemKey} was incomplete`);
+        }
         const start = (part.partNumber - 1) * transfer.partSizeBytes;
         const size = Math.min(transfer.partSizeBytes, upload.size - start);
         const response = await putWithRetry(
@@ -189,8 +218,16 @@ try {
   }
 }
 
-async function putWithRetry(url, headers, body) {
-  let lastError;
+function isHeadersInit(value: unknown): value is Record<string, string> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+async function putWithRetry(
+  url: string,
+  headers: HeadersInit,
+  body: BodyInit | undefined
+): Promise<Response> {
+  let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const response = await fetch(url, { body, headers, method: "PUT" });

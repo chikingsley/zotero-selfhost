@@ -1,6 +1,5 @@
 import type { Bindings } from "../bindings";
-
-type LibraryType = "group" | "user";
+import { D1LibraryVersions, type LibraryType } from "./library-versions";
 
 export interface FullTextRecord {
   content: string;
@@ -95,7 +94,11 @@ export const createFullTextStore = (env: Bindings): FullTextStore =>
   new D1FullTextStore(env.DB);
 
 class D1FullTextStore implements FullTextStore {
-  constructor(private readonly db: D1Database) {}
+  private readonly libraryVersions: D1LibraryVersions;
+
+  constructor(private readonly db: D1Database) {
+    this.libraryVersions = new D1LibraryVersions(db);
+  }
 
   async clearFullText(
     libraryType: LibraryType,
@@ -364,26 +367,14 @@ class D1FullTextStore implements FullTextStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<void> {
-    await this.db
-      .prepare(
-        "INSERT OR IGNORE INTO libraries (library_type, library_id) VALUES (?, ?)"
-      )
-      .bind(libraryType, libraryID)
-      .run();
+    await this.libraryVersions.ensure(libraryType, libraryID);
   }
 
   private async getLibraryVersion(
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        "SELECT version FROM libraries WHERE library_type = ? AND library_id = ?"
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? 0;
+    return this.libraryVersions.get(libraryType, libraryID);
   }
 
   private async itemExists(

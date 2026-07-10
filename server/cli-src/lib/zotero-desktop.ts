@@ -2,11 +2,27 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { sleep } from "./http.mjs";
+import { sleep } from "./http.ts";
+
+interface RunOptions {
+  allowFailure?: boolean;
+  cwd?: string;
+  input?: string;
+}
+
+interface RunResult {
+  status: number;
+  stderr: string;
+  stdout: string;
+}
 
 export const defaultZoteroApp = "/Applications/Zotero.app";
 
-export const assertZoteroStopped = async ({ exceptProfile } = {}) => {
+export const assertZoteroStopped = async ({
+  exceptProfile,
+}: {
+  exceptProfile?: string;
+} = {}) => {
   const processes = await run("ps", ["aux"]);
   const matches = processes.stdout
     .split(/\r?\n/u)
@@ -173,24 +189,45 @@ tell application "System Events"
   tell process "Zotero"
     set frontmost to true
     tell window "Run JavaScript"
-      repeat 120 times
-        if exists group 1 then
-          if exists group 2 of group 1 then
-            if exists scroll area 1 of group 2 of group 1 then exit repeat
-          end if
+      set editorElement to missing value
+      repeat 20 times
+        repeat with candidate in (entire contents)
+          try
+            if role of candidate is "AXTextArea" and enabled of candidate is true then
+              set editorElement to candidate
+              exit repeat
+            end if
+          end try
+        end repeat
+        if editorElement is not missing value then
+          exit repeat
         end if
         delay 0.5
       end repeat
-      if not (exists scroll area 1 of group 2 of group 1) then
-        error "Zotero Run JavaScript editor did not finish loading"
+      if editorElement is missing value then
+        keystroke "a" using command down
+        keystroke "v" using command down
+        keystroke "r" using command down
+      else
+        set focused of editorElement to true
+        set value of editorElement to the clipboard
+        if (value of editorElement as text) does not contain "zotero-selfhost operation started" then
+          error "Zotero Run JavaScript loader verification failed"
+        end if
+        set runButton to missing value
+        repeat with candidate in (entire contents)
+          try
+            if role of candidate is "AXButton" and title of candidate is "Run" then
+              set runButton to candidate
+              exit repeat
+            end if
+          end try
+        end repeat
+        if runButton is missing value then
+          error "Zotero Run JavaScript Run button was not found"
+        end if
+        click runButton
       end if
-      set editorElement to text area 1 of group 1 of group 1 of UI element 1 of scroll area 1 of group 2 of group 1
-      set focused of editorElement to true
-      set value of editorElement to the clipboard
-      if (value of editorElement as text) does not contain "zotero-selfhost operation started" then
-        error "Zotero Run JavaScript loader verification failed"
-      end if
-      click button "Run" of group 1 of group 1
     end tell
   end tell
 end tell
@@ -237,7 +274,11 @@ ${body}
 
 const osascript = async (script) => run("osascript", [], { input: script });
 
-const run = (command, arguments_, options = {}) =>
+const run = (
+  command: string,
+  arguments_: string[],
+  options: RunOptions = {}
+): Promise<RunResult> =>
   new Promise((resolve, reject) => {
     const child = spawn(command, arguments_, {
       cwd: options.cwd,

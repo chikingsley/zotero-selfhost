@@ -14,13 +14,13 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runTwoProfileAcceptance } from "./lib/acceptance.mjs";
-import { defaultImportStatePath, runImport } from "./lib/importer.mjs";
+import { runTwoProfileAcceptance } from "./lib/acceptance.ts";
+import { defaultImportStatePath, runImport } from "./lib/importer.ts";
 import {
   runNativeConnect,
   runProfileMigration,
   runProfileRollback,
-} from "./lib/profile.mjs";
+} from "./lib/profile.ts";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -32,6 +32,16 @@ const wranglerBin = join(
 const defaultWorkerName = "zotero-selfhost";
 const defaultDatabaseName = "zotero-selfhost-db";
 const defaultBucketName = "zotero-selfhost-attachments";
+
+type CLIOptions = Record<string, boolean | string>;
+
+interface WranglerRunOptions {
+  allowFailure?: boolean;
+  input?: string;
+  interactive?: boolean;
+  options?: CLIOptions;
+  quiet?: boolean;
+}
 
 const main = async () => {
   const [command = "help", ...rawArguments] = process.argv.slice(2);
@@ -214,12 +224,13 @@ const setup = async (options) => {
         "This installation is already bootstrapped. Use the recover command if every owner key was lost."
       );
     }
-    if (result.status !== 201 || typeof result.body.apiKey !== "string") {
+    const apiKey = isRecord(result.body) ? result.body.apiKey : null;
+    if (result.status !== 201 || typeof apiKey !== "string") {
       throw new Error(formatHTTPError("Bootstrap failed", result));
     }
 
     saveDeployment({ serverURL, workerName });
-    printSetupResult(serverURL, result.body.apiKey);
+    printSetupResult(serverURL, apiKey);
   } finally {
     deleteSecret("BOOTSTRAP_TOKEN", workerName, options);
   }
@@ -487,14 +498,14 @@ const deleteSecret = (name, workerName, options) => {
 };
 
 const runWrangler = (
-  arguments_,
+  arguments_: string[],
   {
     allowFailure = false,
     input,
     interactive = false,
     options = {},
     quiet = false,
-  } = {}
+  }: WranglerRunOptions = {}
 ) => {
   const profileArguments = options.profile
     ? ["--profile", String(options.profile)]
@@ -533,8 +544,11 @@ const runWrangler = (
   };
 };
 
-const requestJSON = async (url, { body, token }) => {
-  let response;
+const requestJSON = async (
+  url: URL,
+  { body, token }: { body: unknown; token: string }
+) => {
+  let response: Response;
   try {
     response = await fetch(url, {
       body: JSON.stringify(body),
@@ -552,7 +566,7 @@ const requestJSON = async (url, { body, token }) => {
   }
 
   const text = await response.text();
-  let parsed = {};
+  let parsed: unknown = {};
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
@@ -562,15 +576,17 @@ const requestJSON = async (url, { body, token }) => {
 };
 
 const requestEphemeralControl = async (url, options) => {
-  let result;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    result = await requestJSON(url, options);
+    const result = await requestJSON(url, options);
     if (result.status !== 403 && result.status !== 404) {
+      return result;
+    }
+    if (attempt === 9) {
       return result;
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 750));
   }
-  return result;
+  throw new Error("Ephemeral control request exhausted its retry loop.");
 };
 
 const parseArguments = (arguments_) => {
@@ -712,7 +728,7 @@ const assertNodeVersion = () => {
   }
 };
 
-const isRecord = (value) =>
+const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const printHelp = () => {

@@ -1,9 +1,8 @@
 import type { Bindings } from "../bindings";
+import { D1LibraryVersions, type LibraryType } from "./library-versions";
 import { validateObjectRelationsForWrite } from "./relations";
 import type { ItemRecord } from "./state";
 import { generateZoteroKey, sanitizeZoteroData } from "./zotero";
-
-type LibraryType = "group" | "user";
 
 export interface CollectionRecord {
   data: Record<string, unknown>;
@@ -76,7 +75,11 @@ export const createCollectionStore = (env: Bindings): CollectionStore =>
   new D1CollectionStore(env.DB);
 
 class D1CollectionStore implements CollectionStore {
-  constructor(private readonly db: D1Database) {}
+  private readonly libraryVersions: D1LibraryVersions;
+
+  constructor(private readonly db: D1Database) {
+    this.libraryVersions = new D1LibraryVersions(db);
+  }
 
   async createCollections(
     libraryType: LibraryType,
@@ -583,12 +586,7 @@ class D1CollectionStore implements CollectionStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<void> {
-    await this.db
-      .prepare(
-        "INSERT OR IGNORE INTO libraries (library_type, library_id) VALUES (?, ?)"
-      )
-      .bind(libraryType, libraryID)
-      .run();
+    await this.libraryVersions.ensure(libraryType, libraryID);
   }
 
   private async getCollectionRecord(
@@ -615,14 +613,7 @@ class D1CollectionStore implements CollectionStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        "SELECT version FROM libraries WHERE library_type = ? AND library_id = ?"
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? 0;
+    return this.libraryVersions.get(libraryType, libraryID);
   }
 
   private async reserveLibraryVersions(
@@ -631,30 +622,12 @@ class D1CollectionStore implements CollectionStore {
     count: number,
     expectedVersion: number | null
   ): Promise<number | null> {
-    const row =
-      expectedVersion === null
-        ? await this.db
-            .prepare(
-              `UPDATE libraries
-               SET version = version + ?,
-                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-               WHERE library_type = ? AND library_id = ?
-               RETURNING version`
-            )
-            .bind(count, libraryType, libraryID)
-            .first<{ version: number }>()
-        : await this.db
-            .prepare(
-              `UPDATE libraries
-               SET version = version + ?,
-                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-               WHERE library_type = ? AND library_id = ? AND version = ?
-               RETURNING version`
-            )
-            .bind(count, libraryType, libraryID, expectedVersion)
-            .first<{ version: number }>();
-
-    return row?.version ?? null;
+    return this.libraryVersions.reserve(
+      libraryType,
+      libraryID,
+      count,
+      expectedVersion
+    );
   }
 
   private async reservePreconditionGuard(
@@ -662,18 +635,12 @@ class D1CollectionStore implements CollectionStore {
     libraryID: number,
     expectedVersion: number
   ): Promise<boolean> {
-    const token = `if-unmodified:collection:${expectedVersion}`;
-    const row = await this.db
-      .prepare(
-        `INSERT INTO write_tokens (library_type, library_id, token)
-         VALUES (?, ?, ?)
-         ON CONFLICT(library_type, library_id, token) DO NOTHING
-         RETURNING token`
-      )
-      .bind(libraryType, libraryID, token)
-      .first<{ token: string }>();
-
-    return Boolean(row);
+    return this.libraryVersions.reservePrecondition(
+      libraryType,
+      libraryID,
+      "collection",
+      expectedVersion
+    );
   }
 
   private async getNumChildCollections(

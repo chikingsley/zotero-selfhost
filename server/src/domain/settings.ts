@@ -1,6 +1,5 @@
 import type { Bindings } from "../bindings";
-
-type LibraryType = "group" | "user";
+import { D1LibraryVersions, type LibraryType } from "./library-versions";
 
 type SettingFailureCode = 400 | 403 | 412 | 413;
 
@@ -106,7 +105,11 @@ export const parseSettingsRequestBody = (body: string): unknown => {
 };
 
 class D1SettingsStore implements SettingsStore {
-  constructor(private readonly db: D1Database) {}
+  private readonly libraryVersions: D1LibraryVersions;
+
+  constructor(private readonly db: D1Database) {
+    this.libraryVersions = new D1LibraryVersions(db);
+  }
 
   async clearSettings(
     libraryType: LibraryType,
@@ -389,18 +392,10 @@ class D1SettingsStore implements SettingsStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        `UPDATE libraries
-         SET version = version + 1,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE library_type = ? AND library_id = ?
-         RETURNING version`
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? this.getLibraryVersion(libraryType, libraryID);
+    return (
+      (await this.libraryVersions.reserve(libraryType, libraryID, 1, null)) ??
+      this.getLibraryVersion(libraryType, libraryID)
+    );
   }
 
   private async ensureLibrary(
@@ -430,14 +425,7 @@ class D1SettingsStore implements SettingsStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        "SELECT version FROM libraries WHERE library_type = ? AND library_id = ?"
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? 0;
+    return this.libraryVersions.get(libraryType, libraryID);
   }
 
   private async getSettingsByKey(

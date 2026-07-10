@@ -150,6 +150,73 @@ describe("Zotero compatibility bootstrap", () => {
     expect(fetchedBody.data.tags[0].tag).toBe("CC");
   });
 
+  it("uses the shared item and full-text routes for group libraries", async () => {
+    await request("/test/setup?u=1&u2=2", {
+      body: " ",
+      headers: {
+        Authorization: compatibilityAdminAuth,
+      },
+      method: "POST",
+    });
+
+    const createGroup = await request("/groups", {
+      body: '<group owner="1" name="Runtime Group" type="Private" libraryReading="members" libraryEditing="members" fileEditing="members"/>',
+      headers: {
+        Authorization: compatibilityAdminAuth,
+        "Content-Type": "application/xml",
+      },
+      method: "POST",
+    });
+    expect(createGroup.status).toBe(201);
+    const groupID = (await createGroup.text()).match(
+      /<zapi:groupID>(\d+)<\/zapi:groupID>/
+    )?.[1];
+    expect(groupID).toBe("1");
+
+    const authorization = "Bearer testkey1";
+    const createItem = await request(`/groups/${groupID}/items`, {
+      body: JSON.stringify([{ itemType: "book", title: "Shared group route" }]),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    expect(createItem.status).toBe(200);
+    const createItemBody = (await createItem.json()) as {
+      success: Record<string, string>;
+    };
+    const itemKey = createItemBody.success["0"];
+    expect(itemKey).toBeTruthy();
+
+    const fetched = await request(`/groups/${groupID}/items/${itemKey}`, {
+      headers: { Authorization: authorization },
+    });
+    expect(fetched.status).toBe(200);
+    expect(
+      ((await fetched.json()) as { data: { title: string } }).data.title
+    ).toBe("Shared group route");
+
+    const fullText = await request(`/groups/${groupID}/fulltext`, {
+      body: JSON.stringify([
+        {
+          content: "Shared group full text",
+          indexedChars: 22,
+          key: itemKey,
+          totalChars: 22,
+        },
+      ]),
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+        "If-Unmodified-Since-Version":
+          createItem.headers.get("Last-Modified-Version") ?? "",
+      },
+      method: "POST",
+    });
+    expect(fullText.status).toBe(200);
+  });
+
   it("enforces key-write version preconditions in D1", async () => {
     const setup = await request("/test/setup?u=1&u2=2", {
       body: " ",

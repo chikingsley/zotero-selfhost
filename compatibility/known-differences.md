@@ -1,7 +1,6 @@
 # Known Differences vs the Official Dataserver
 
-The current deployed Cloudflare D1/R2 baseline is green for every official v3
-test that runs: `451 passing`, `22 pending`, `0 failing`.
+The current isolated Cloudflare D1/R2 baseline is green for every official v3 test that runs: `451 passing`, `22 pending`, `0 application failures`.
 
 This file tracks accepted differences and harness caveats, not open failures.
 
@@ -15,11 +14,8 @@ This file tracks accepted differences and harness caveats, not open failures.
 
 ## Local Harness Caveats
 
-- **Local Wrangler external-service cases**: the official suite directly uses
-  AWS S3 and DynamoDB for a small set of file/full-text setup assertions. Local
-  Miniflare D1/R2 has no AWS credentials or HTTPS storage hostname, so those
-  cases remain live-deployment checks. The application-level R2 upload/download
-  flow is covered by Workers Vitest.
+- **D1 full-text state adapter**: four upstream full-text assertions directly manipulate Zotero.org's DynamoDB state rather than using HTTP. When `fullTextStateAPI` is enabled, the compatibility runner redirects only that helper through a Node loader to the isolated Worker's authenticated D1 test-state endpoint. The pinned upstream checkout and its assertions remain unchanged.
+- **Local Wrangler external-service cases**: the official suite directly uses AWS S3 for a small set of file setup assertions. Local Miniflare R2 has no AWS credentials or HTTPS storage hostname, so those cases remain live-deployment checks. The application-level R2 upload/download flow is covered by Workers Vitest.
 - **Partial-update tools**: the official file tests skip some optional
   `bsdiff`, `xdelta3`, and `vcdiff` CLI subcases when those tools are not
   installed locally. The Worker bundles WASM support for the supported
@@ -37,7 +33,4 @@ This file tracks accepted differences and harness caveats, not open failures.
   adds a real speech provider.
 - **Web translation**: local compatibility behavior for the official tests; a
   production translation feature would need a real translation service decision.
-- **Notifications**: API-compatible notification headers are also published to
-  authenticated WebSocket subscribers by the hibernating `ZoteroStreamHub`
-  Durable Object. Multi-device and eviction/reconnect acceptance tests remain a
-  release gate; streaming does not replace the standard HTTP sync process.
+- **Notifications**: API-compatible notification headers are also published to authenticated WebSocket subscribers by the hibernating `ZoteroStreamHub` Durable Object. Runtime tests force Durable Object eviction and cover reconnect, invalid keys, and revoked keys. The remaining live gate is passive notification and normal sync between two real Desktop clients; streaming does not replace the standard HTTP sync process.

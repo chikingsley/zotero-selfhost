@@ -8,12 +8,25 @@ This is an independent implementation. “Zotero” is a registered trademark of
 
 ## Current Status
 
-- The last deployed compatibility baseline is `451 passing`, `22` upstream- pending, and `0 failing` against Zotero's pinned official v3 HTTP tests.
-- A disposable Zotero Desktop profile has completed metadata and attachment synchronization against the deployed D1/R2 implementation.
-- The current server adds final resource naming, one-time owner bootstrap, Cloudflare-account recovery, strict compatibility-test isolation, Zotero-protocol WebSocket notifications, a resumable Zotero.org personal- library importer, backed-up Desktop profile migration/rollback, and a two-profile Desktop acceptance harness.
-- The production custom domain now uses the final Worker, D1, R2, and Durable Object resources. The legacy stack remains intact only as a rollback target.
+The production server at the custom domain is running on the final Worker, D1, R2, and Durable Object resources. The personal Zotero library and attachments were imported, the real Desktop profile was migrated to that server, and ordinary Desktop synchronization is working. The legacy Cloudflare stack remains intact only as a server-side rollback target.
+
+The latest isolated compatibility run completed with `451 passing`, `22` tests marked pending by the pinned upstream suite, and `0 application failures`. Disposable Zotero Desktop profiles have also completed metadata and attachment synchronization against the deployed D1/R2 implementation.
+
+The current source is prepared as `0.1.3` but has not been published to npm. GitHub Actions attempted trusted publication for `0.1.1` and `0.1.2`, but npm rejected the publishing identity. The registry still serves the older `0.1.0`, which predates native Desktop account linking, and the existing unpublished `v0.1.2` tag remains on its original commit rather than being moved. Until trusted publishing is corrected and the current work can be committed, commands in this README that use `npx`, `bunx`, `pnpx`, or `yarn dlx` describe the intended published interface; the current implementation must be run from this checkout with `cd server && bun run cli -- <command>`.
 
 See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for measured results and [`TODO.md`](TODO.md) for the remaining product work.
+
+## What Each Desktop Command Does
+
+`setup` and `setup --existing` operate on Cloudflare. They provision or finish configuring the Worker, D1 database, R2 bucket, Durable Object, server secrets, and first owner key. They do not open Zotero Desktop, edit a Zotero profile, or run JavaScript inside Zotero.
+
+`connect` is the normal path for a new or unlinked Zotero profile. The person does not need a Zotero.org account. They need access to their own deployed self-host server and its owner key, which authorizes the Desktop once and is exchanged for a separate device key. With Zotero closed, `connect` writes only the custom API and streaming preferences into the selected profile's `user.js`, preserving and backing up any existing file. After Zotero reopens, the user chooses Settings → Sync → Link Account. Zotero creates a login session, opens this server's `/login` page, receives the device key, stores that key itself, and then uses Zotero's ordinary synchronization engine. The native `/login` route and `connect` command are implemented, tested, deployed, and passed a production native-login smoke test.
+
+`import` is a one-time copy from Zotero.org into the self-hosted server. It does not delete or modify the Zotero.org library. The production import is complete.
+
+`profile` is a special migration path for an already-populated Zotero.org Desktop profile. It creates a complete backup, switches that existing profile's sync identity and server preferences, and invokes Zotero's Run JavaScript facility to force and verify the identity transition. That JavaScript does not run during ordinary synchronization and is not used by `setup`, `setup --existing`, or the normal `connect` path.
+
+The full live profile rollback and re-cutover drill is complete. The original backup restored the real profile to the `simonpeacocks` Zotero.org account with 414 items and 10 collections, a manual Zotero.org sync completed, and the profile then migrated back to the self-host identity `simon`. The final self-host sync completed with an empty local sync queue, and both the Desktop database and production API report 414 items and 10 collections. The drill exposed a changed Zotero 9 accessibility tree in the Run JavaScript editor; the migration runner now falls back to the editor's native paste and Command-R interaction while retaining the operation-result and full-sync verification that prevents a failed paste from being reported as success.
 
 ## Migrate An Existing Personal Library
 
@@ -35,8 +48,6 @@ npx zotero-selfhost-server profile --url https://your-worker.example.com --execu
 
 The `profile` command is the backed-up existing-profile migration path. For a new or unlinked Zotero profile, use native account linking instead: close Zotero, run `npx zotero-selfhost-server connect --url https://your-worker.example.com --execute`, reopen Zotero, and choose Settings → Sync → Link Account. Zotero then opens the self-hosted login page, receives its own device key, stores it, and uses its normal sync engine without Developer Tools or UI automation.
 
-`npx`/`bunx`/`pnpx`/`yarn dlx` require the package to be published (or an explicit local directory, tarball, or Git source). The Deploy to Cloudflare button does not depend on npm. This package is not published yet, so from this checkout use `cd server && bun run cli -- <command>`.
-
 An optional version-1 recovery manifest maps unavailable attachment keys to reviewed local archive files. Relative paths resolve from the manifest:
 
 ```json
@@ -52,7 +63,7 @@ The importer hashes these files during planning and again before upload. It does
 
 ## Install
 
-The package exposes one `zotero-selfhost` executable. Once `zotero-selfhost-server` is published, any common package runner can invoke the same CLI:
+The package exposes one `zotero-selfhost` executable. Once the current release replaces the older public `0.1.0` package, common package runners will invoke the same CLI:
 
 ```bash
 npx zotero-selfhost-server setup
@@ -89,7 +100,7 @@ npx zotero-selfhost-server setup --existing \
   --url https://your-worker.example.workers.dev
 ```
 
-The source repository must be public before unrelated Cloudflare users can use the deploy button.
+The source repository is public and the deploy button points at the `server/` deployment directory. A complete fresh-account button deployment is still an explicit release test rather than a claimed completed result.
 
 ## Recovery
 
@@ -110,7 +121,7 @@ The CLI installs a temporary recovery secret, creates a replacement owner key, a
 - `ZoteroStreamHub` holds live WebSocket subscriptions only. A committed library mutation produces `topicUpdated`; clients then use their normal HTTP sync path to fetch data.
 - A Zotero.org API key is an optional one-time importer input. It is not a credential for this server and is never a Worker secret.
 
-Zotero Desktop can be pointed at a custom API server. The stock Zotero mobile apps currently require an upstream change or a fork to use a custom API base; a future application can use this server's HTTP and streaming protocols.
+Zotero Desktop can be pointed at a custom API server. The stock Zotero mobile apps currently hard-code Zotero's API base, so this project is building toward a first-party iPhone and iPad application that uses the server's HTTP and streaming protocols directly. The intended mobile scope includes self-hosted synchronization, offline PDF and EPUB reading, annotations, and Calibre-like metadata enrichment without making a maintained Zotero mobile fork a product dependency.
 
 ## Development And Compatibility
 

@@ -1,4 +1,4 @@
-type LibraryType = "group" | "user";
+import type { LibraryType } from "./library-versions";
 
 export interface StreamingNotification {
   event: string;
@@ -49,6 +49,17 @@ export const notificationHeaders = (
         "zotero-debug-notifications": encodeNotifications(notifications),
       }
     : {};
+
+export const libraryUpdateNotificationHeaders = (
+  libraryType: LibraryType,
+  libraryID: number,
+  version: number,
+  ...additionalNotifications: StreamingNotification[]
+): Record<string, string> =>
+  notificationHeaders(
+    topicUpdatedNotification(libraryType, libraryID, version),
+    ...additionalNotifications
+  );
 
 export const decodeNotificationHeader = (
   value: string | null

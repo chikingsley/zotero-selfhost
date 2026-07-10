@@ -1,6 +1,6 @@
+import type { LibraryType } from "./library-versions";
 import type { ItemRecord } from "./state";
 
-type LibraryType = "group" | "user";
 type RelationObjectType = "collection" | "item";
 
 export interface RelationValidationFailure {

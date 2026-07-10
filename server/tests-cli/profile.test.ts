@@ -16,7 +16,7 @@ import {
   parseProfilesIni,
   runNativeConnect,
   runProfileMigration,
-} from "../cli/lib/profile.mjs";
+} from "../cli-src/lib/profile.ts";
 
 const root = mkdtempSync(join(tmpdir(), "zotero-profile-test-"));
 

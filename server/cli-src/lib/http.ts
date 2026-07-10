@@ -1,7 +1,14 @@
 const defaultRetryStatuses = new Set([429, 500, 502, 503, 504]);
 
 export class HTTPResponseError extends Error {
-  constructor(message, { body, response }) {
+  readonly body: unknown;
+  readonly response: Response;
+  readonly status: number;
+
+  constructor(
+    message: string,
+    { body, response }: { body: unknown; response: Response }
+  ) {
     super(message);
     this.name = "HTTPResponseError";
     this.body = body;
@@ -11,7 +18,20 @@ export class HTTPResponseError extends Error {
 }
 
 export class ZoteroAPIClient {
-  constructor({ apiKey, baseURL, fetchImpl = globalThis.fetch }) {
+  readonly apiKey?: string;
+  readonly baseURL: URL;
+  readonly fetchImpl: typeof fetch;
+  private notBefore = 0;
+
+  constructor({
+    apiKey,
+    baseURL,
+    fetchImpl = globalThis.fetch,
+  }: {
+    apiKey?: string;
+    baseURL: string | URL;
+    fetchImpl?: typeof fetch;
+  }) {
     if (typeof fetchImpl !== "function") {
       throw new TypeError("A fetch implementation is required.");
     }
@@ -19,10 +39,9 @@ export class ZoteroAPIClient {
     this.apiKey = apiKey;
     this.baseURL = normalizeOrigin(baseURL);
     this.fetchImpl = fetchImpl;
-    this.notBefore = 0;
   }
 
-  async request(path, init = {}) {
+  async request(path: string | URL, init: RequestInit = {}): Promise<Response> {
     const url = path instanceof URL ? path : new URL(path, this.baseURL);
     const headers = new Headers(init.headers);
     headers.set("Accept", headers.get("Accept") ?? "application/json");
@@ -31,11 +50,11 @@ export class ZoteroAPIClient {
       headers.set("Zotero-API-Key", this.apiKey);
     }
 
-    let lastError;
+    let lastError: unknown;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await this.waitForBackoff();
 
-      let response;
+      let response: Response;
       try {
         response = await this.fetchImpl(url, { ...init, headers });
       } catch (error) {
@@ -63,7 +82,11 @@ export class ZoteroAPIClient {
     );
   }
 
-  async json(path, init = {}, acceptedStatuses = [200]) {
+  async json(
+    path: string | URL,
+    init: RequestInit = {},
+    acceptedStatuses = [200]
+  ): Promise<{ body: unknown; response: Response }> {
     const response = await this.request(path, init);
     const text = await response.text();
     const body = parsePossibleJSON(text);
@@ -76,7 +99,7 @@ export class ZoteroAPIClient {
     return { body, response };
   }
 
-  captureBackoff(response) {
+  private captureBackoff(response: Response): void {
     const seconds = Math.max(
       parseSeconds(response.headers.get("Backoff")),
       defaultRetryStatuses.has(response.status)
@@ -88,7 +111,7 @@ export class ZoteroAPIClient {
     }
   }
 
-  async waitForBackoff() {
+  private async waitForBackoff(): Promise<void> {
     let remaining = this.notBefore - Date.now();
     while (remaining > 0) {
       await sleep(Math.min(remaining, 30_000));
@@ -97,7 +120,7 @@ export class ZoteroAPIClient {
   }
 }
 
-export const normalizeOrigin = (value) => {
+export const normalizeOrigin = (value: string | URL): URL => {
   const url = value instanceof URL ? new URL(value) : new URL(String(value));
   if (
     !(
@@ -116,7 +139,7 @@ export const normalizeOrigin = (value) => {
   return url;
 };
 
-export const parsePossibleJSON = (text) => {
+export const parsePossibleJSON = (text: string): unknown => {
   if (!text) {
     return null;
   }
@@ -129,17 +152,23 @@ export const parsePossibleJSON = (text) => {
   }
 };
 
-export const requireRecord = (value, label) => {
+export const requireRecord = (
+  value: unknown,
+  label: string
+): Record<string, unknown> => {
   if (!(value && typeof value === "object" && !Array.isArray(value))) {
     throw new Error(`${label} did not return a JSON object.`);
   }
-  return value;
+  return value as Record<string, unknown>;
 };
 
-export const sleep = (milliseconds) =>
+export const sleep = (milliseconds: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-const retryDelayMilliseconds = (response, attempt) => {
+const retryDelayMilliseconds = (
+  response: Response,
+  attempt: number
+): number => {
   const retryAfter = parseSeconds(response.headers.get("Retry-After"));
   if (retryAfter > 0) {
     return Math.min(retryAfter * 1000, 30_000);
@@ -147,7 +176,7 @@ const retryDelayMilliseconds = (response, attempt) => {
   return Math.min(500 * 2 ** attempt, 8000);
 };
 
-const parseSeconds = (value) => {
+const parseSeconds = (value: string | null): number => {
   const seconds = Number.parseInt(value ?? "", 10);
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
 };

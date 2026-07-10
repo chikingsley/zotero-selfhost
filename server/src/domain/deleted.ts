@@ -1,6 +1,6 @@
 import type { Bindings } from "../bindings";
+import { D1LibraryVersions, type LibraryType } from "./library-versions";
 
-type LibraryType = "group" | "user";
 type DeletedObjectType = "collection" | "item" | "search" | "setting" | "tag";
 
 export interface DeletedResult {
@@ -61,7 +61,11 @@ export const recordDeletedObjects = async (
 };
 
 class D1DeletedStore implements DeletedStore {
-  constructor(private readonly db: D1Database) {}
+  private readonly libraryVersions: D1LibraryVersions;
+
+  constructor(private readonly db: D1Database) {
+    this.libraryVersions = new D1LibraryVersions(db);
+  }
 
   async listDeleted(
     libraryType: LibraryType,
@@ -80,12 +84,7 @@ class D1DeletedStore implements DeletedStore {
       )
       .bind(libraryType, libraryID, sinceVersion)
       .all<D1DeletedRow>();
-    const versionRow = await this.db
-      .prepare(
-        "SELECT version FROM libraries WHERE library_type = ? AND library_id = ?"
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
+    const version = await this.libraryVersions.get(libraryType, libraryID);
     const deleted = emptyDeleted();
 
     for (const row of rows.results ?? []) {
@@ -94,7 +93,7 @@ class D1DeletedStore implements DeletedStore {
 
     return {
       deleted: dedupeDeleted(deleted),
-      version: versionRow?.version ?? 0,
+      version,
     };
   }
 }

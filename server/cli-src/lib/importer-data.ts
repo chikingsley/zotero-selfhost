@@ -1,10 +1,12 @@
-import { requireRecord } from "./http.mjs";
+import { requireRecord, type ZoteroAPIClient } from "./http.ts";
 
 const storedFileLinkModes = new Set([
   "embedded_image",
   "imported_file",
   "imported_url",
 ]);
+
+type KeyedObject = Record<string, unknown> & { key: string };
 
 export const readSnapshot = async (client, userID, { includeFulltext }) => {
   const [collectionPage, itemPage, searchPage, settingsResult] =
@@ -105,14 +107,14 @@ export const remapSnapshotUserIdentity = (
   };
 };
 
-export const orderCollections = (collections) =>
+export const orderCollections = (collections: KeyedObject[]) =>
   dependencyOrder(collections, (collection) =>
     typeof collection.parentCollection === "string"
       ? collection.parentCollection
       : null
   );
 
-export const orderItems = (items) =>
+export const orderItems = (items: KeyedObject[]) =>
   dependencyOrder(items, (item) =>
     typeof item.parentItem === "string" ? item.parentItem : null
   );
@@ -131,9 +133,13 @@ export const inventoryObjectCount = (inventory) =>
   inventory.searchKeys.length +
   inventory.settingKeys.length;
 
-const readAllPages = async (client, path, extraParameters = {}) => {
-  const objects = [];
-  let libraryVersion = null;
+const readAllPages = async (
+  client: ZoteroAPIClient,
+  path: string,
+  extraParameters: Record<string, string> = {}
+) => {
+  const objects: Record<string, unknown>[] = [];
+  let libraryVersion: number | null = null;
   let start = 0;
 
   while (true) {
@@ -158,7 +164,9 @@ const readAllPages = async (client, path, extraParameters = {}) => {
         `The library changed while reading ${url.pathname}; retry from a stable source.`
       );
     }
-    objects.push(...body);
+    objects.push(
+      ...body.map((entry) => requireRecord(entry, `${url.pathname} entry`))
+    );
 
     const total = Number.parseInt(
       response.headers.get("Total-Results") ?? String(objects.length),
@@ -238,9 +246,12 @@ const remapUserIdentityValue = (value, sourceUserID, targetUserID) => {
   return value;
 };
 
-const dependencyOrder = (objects, parentKey) => {
+const dependencyOrder = <T extends { key: string }>(
+  objects: T[],
+  parentKey: (object: T) => string | null | undefined
+): T[] => {
   const pending = new Map(objects.map((object) => [object.key, object]));
-  const ordered = [];
+  const ordered: T[] = [];
   while (pending.size > 0) {
     let progressed = false;
     for (const [key, object] of pending) {

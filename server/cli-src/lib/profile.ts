@@ -14,13 +14,23 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.mjs";
-import { defaultImportStatePath, readImportState } from "./importer.mjs";
+import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.ts";
+import { defaultImportStatePath, readImportState } from "./importer.ts";
 import {
   assertZoteroStopped,
   defaultZoteroApp,
   runZoteroScript,
-} from "./zotero-desktop.mjs";
+} from "./zotero-desktop.ts";
+
+interface DeviceKey {
+  key: string;
+  name: string;
+}
+
+interface ProfileSection {
+  name: string;
+  values: Record<string, string>;
+}
 
 const connectBlockStart = "// zotero-selfhost connect begin";
 const connectBlockEnd = "// zotero-selfhost connect end";
@@ -120,7 +130,11 @@ export const runProfileMigration = async ({
   });
   const keyResult = await target.json("/keys/current");
   const keyInfo = requireRecord(keyResult.body, "Self-host key check");
-  if (!Number.isInteger(keyInfo.userID) || keyInfo.userID < 1) {
+  if (
+    typeof keyInfo.userID !== "number" ||
+    !Number.isInteger(keyInfo.userID) ||
+    keyInfo.userID < 1
+  ) {
     throw new Error("The self-host key did not return a valid userID.");
   }
   const ownerCheck = await target.request(`/users/${keyInfo.userID}/keys`);
@@ -172,7 +186,7 @@ export const runProfileMigration = async ({
   });
   const workspace = mkdtempSync(join(tmpdir(), "zotero-selfhost-profile-"));
   const apiKeyPath = join(workspace, "device-api-key");
-  let deviceKey = null;
+  let deviceKey: DeviceKey | null = null;
 
   try {
     deviceKey = await createDeviceKey(target, keyInfo.userID);
@@ -240,10 +254,10 @@ const createDeviceKey = async (client, userID) => {
     [201]
   );
   const key = requireRecord(body, "Device key creation");
-  if (typeof key.key !== "string") {
+  if (typeof key.key !== "string" || typeof key.name !== "string") {
     throw new Error("Device key creation did not return an API key.");
   }
-  return key;
+  return { key: key.key, name: key.name };
 };
 
 export const runProfileRollback = async ({
@@ -327,6 +341,10 @@ export const discoverProfile = ({
   dataDir: explicitDataDir,
   profileDir: explicitProfileDir,
   profilesRoot: explicitProfilesRoot,
+}: {
+  dataDir?: string;
+  profileDir?: string;
+  profilesRoot?: string;
 } = {}) => {
   const profilesRoot = resolve(explicitProfilesRoot ?? defaultProfilesRoot());
   const profileDir = explicitProfileDir
@@ -348,9 +366,9 @@ export const discoverProfile = ({
   return { dataDir, profileDir, profilesRoot };
 };
 
-export const parseProfilesIni = (contents) => {
-  const sections = [];
-  let current = null;
+export const parseProfilesIni = (contents: string): ProfileSection[] => {
+  const sections: ProfileSection[] = [];
+  let current: ProfileSection | null = null;
   for (const originalLine of contents.split(/\r?\n/u)) {
     const line = originalLine.trim();
     if (!(line && !line.startsWith(";") && !line.startsWith("#"))) {
@@ -400,12 +418,13 @@ const readConfiguredDataDir = (profileDir) => {
     .filter(existsSync)
     .map((path) => readFileSync(path, "utf8"))
     .join("\n");
-  let configured = null;
+  let configured: string | null = null;
   const pattern =
     /user_pref\(\s*"extensions\.zotero\.dataDir"\s*,\s*("(?:\\.|[^"\\])*")\s*\);/gu;
   for (const match of contents.matchAll(pattern)) {
     try {
-      configured = JSON.parse(match[1]);
+      const parsed: unknown = JSON.parse(match[1]);
+      configured = typeof parsed === "string" ? parsed : null;
     } catch {
       // Ignore malformed preference lines and use Zotero's default data path.
     }
@@ -487,7 +506,7 @@ const listDatabaseFiles = (dataDir) => {
 };
 
 const listFiles = (root) => {
-  const files = [];
+  const files: string[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
     if (entry.isDirectory()) {

@@ -26,7 +26,7 @@ pnpx zotero-selfhost-server setup
 yarn dlx zotero-selfhost-server setup
 ```
 
-The package is not published yet. From this checkout use:
+Version `0.1.0` is public on npm but predates the current native account-linking work. Until the current release is published, use this checkout for the behavior documented here:
 
 ```bash
 bun run cli -- setup
@@ -89,7 +89,7 @@ npx zotero-selfhost-server connect --url https://your-worker.example.com
 npx zotero-selfhost-server connect --url https://your-worker.example.com --execute
 ```
 
-The command is dry-run-first and requires Zotero to be closed before `--execute`. It preserves existing `user.js` content, backs that file up when present, and installs only the custom API and streaming preferences. Reopen Zotero, choose Settings → Sync → Link Account, and enter the owner key on the self-hosted HTTPS login page. Zotero creates and stores a separate device key through its native session API. No Developer Tools or UI automation is involved.
+The command is dry-run-first and requires Zotero to be closed before `--execute`. It preserves existing `user.js` content, backs that file up when present, and installs only the custom API and streaming preferences. Reopen Zotero, choose Settings → Sync → Link Account, and enter the owner key on the self-hosted HTTPS login page. No Zotero.org account is required: the self-host owner key authorizes the installation once, and Zotero creates and stores a separate device key through its native session API. No Developer Tools or UI automation is involved.
 
 ### Existing personal-library migration
 
@@ -158,6 +158,29 @@ bun run deploy:dry-run
 ```
 
 `bun run check` runs Ultracite/Biome, generated Wrangler binding types, TypeScript, the independent compatibility-runner typecheck, Workers Vitest, and an npm package dry-run.
+
+### Recovery drill
+
+Maintainers can restore a D1 SQL export into a newly created, empty disposable database without writing to production. The fallback restore uses parameterized D1 queries, so it does not depend on Cloudflare's temporary bulk-import upload host:
+
+```sh
+bun run restore:d1 <disposable-database-id> /path/to/database.sql
+```
+
+R2 backup and restore copies stay inside Cloudflare and verify every key and byte size. Single-part objects also retain and verify their content ETag; multipart ETags are transfer identifiers and are not expected to remain stable after a server-side copy:
+
+```sh
+bun run copy:r2 zotero-selfhost-attachments <backup-bucket>
+bun run copy:r2 <backup-bucket> <disposable-restore-bucket>
+```
+
+After verification, the cleanup command deliberately refuses to empty any bucket whose name does not contain `-restore-drill-`:
+
+```sh
+bun run empty:r2-drill <disposable-restore-bucket>
+bunx wrangler r2 bucket delete <disposable-restore-bucket>
+bunx wrangler d1 delete <disposable-database-name> --skip-confirmation
+```
 
 ## Runtime Safety Net
 

@@ -10,6 +10,7 @@ interface RunnerArgs {
 
 interface RunnerConfig extends Record<string, unknown> {
   cloudflareR2FromApiToken?: boolean;
+  fullTextStateAPI?: boolean;
   s3Bucket?: string;
 }
 
@@ -25,6 +26,10 @@ const oracleLockPath = join(repoRoot, "compatibility/oracle.lock.json");
 const schemaPath = join(
   repoRoot,
   "references/dataserver/htdocs/zotero-schema/schema.json"
+);
+const fullTextStateRegisterPath = join(
+  repoRoot,
+  "compatibility/fulltext-state-register.mjs"
 );
 
 const assertOracleReady = () => {
@@ -186,6 +191,14 @@ const main = async () => {
   const config = loadConfig(configPath);
   const nodeConfig = JSON.stringify(config);
   const env = await withCloudflareR2Env(config, process.env);
+  const nodeOptions = [
+    env.NODE_OPTIONS,
+    config.fullTextStateAPI
+      ? `--import=${fullTextStateRegisterPath}`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   console.log(`target=${target}`);
   console.log(`config=${configPath}`);
@@ -196,6 +209,7 @@ const main = async () => {
     env: {
       ...env,
       NODE_CONFIG: nodeConfig,
+      NODE_OPTIONS: nodeOptions,
     },
     stderr: "inherit",
     stdout: "inherit",

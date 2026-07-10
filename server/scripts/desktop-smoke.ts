@@ -18,11 +18,21 @@ interface SmokeResult {
   title: string;
 }
 
+interface StreamingNotification {
+  event: "topicUpdated";
+  topic: string;
+  version: number;
+}
+
 const args = new Set(process.argv.slice(2));
 const endpoint =
   getArgValue("--endpoint") ?? "https://zotero.peacockery.studio/";
 const normalizedEndpoint = `${endpoint.replace(/\/+$/, "")}/`;
 const baseURL = normalizedEndpoint.replace(/\/+$/, "");
+const streamURL = normalizedEndpoint
+  .replace(/^http:/, "ws:")
+  .replace(/^https:/, "wss:")
+  .replace(/\/+$/, "/stream");
 const zoteroApp = getArgValue("--zotero-app") ?? "/Applications/Zotero.app";
 const tmpRoot = getArgValue("--tmp") ?? "/tmp/zotero-real-app-smoke";
 const keepOpen = args.has("--keep-open");
@@ -49,7 +59,8 @@ async function main() {
   await resetTempRoot();
   await writeProfilePrefs();
   await writeDesktopSmokeScript();
-  await setupRemoteTestUser();
+  const apiKey = await setupRemoteTestUser();
+  const stream = await openStreamingSubscription(apiKey);
 
   const previousClipboard = await run("pbpaste", [], {
     allowFailure: true,
@@ -68,7 +79,10 @@ async function main() {
     await waitForZoteroProcess();
     await openRunJavaScript();
     await runLoaderInZotero();
-    const smoke = await waitForSmokeResult();
+    const [smoke, streamingNotification] = await Promise.all([
+      waitForSmokeResult(),
+      stream.notification,
+    ]);
     const remote = await verifyRemote(smoke);
 
     console.log(
@@ -79,6 +93,10 @@ async function main() {
           remote,
           resultPath,
           smoke,
+          streaming: {
+            notification: streamingNotification,
+            url: streamURL,
+          },
           worker: baseURL,
         },
         null,
@@ -86,6 +104,7 @@ async function main() {
       )
     );
   } finally {
+    stream.webSocket.close(1000, "desktop smoke complete");
     await run("pbcopy", [], { allowFailure: true, input: previousClipboard });
     if (!keepOpen) {
       await killTempZotero();
@@ -136,6 +155,8 @@ async function writeProfilePrefs() {
       'user_pref("extensions.zotero.useDataDir", true);',
       `user_pref("extensions.zotero.dataDir", "${dataDir}");`,
       `user_pref("extensions.zotero.api.url", "${normalizedEndpoint}");`,
+      `user_pref("extensions.zotero.streaming.url", "${streamURL}");`,
+      'user_pref("extensions.zotero.streaming.enabled", true);',
       'user_pref("extensions.zotero.sync.server.username", "phpunit");',
       'user_pref("extensions.zotero.sync.autoSync", false);',
       'user_pref("extensions.zotero.sync.storage.enabled", true);',
@@ -154,7 +175,7 @@ async function writeDesktopSmokeScript() {
   await writeFile(scriptPath, desktopSmokeBody(), { mode: 0o600 });
 }
 
-async function setupRemoteTestUser() {
+async function setupRemoteTestUser(): Promise<string> {
   const credentials = Buffer.from(
     `compatibility:${compatibilityTestAdminToken}`
   ).toString("base64");
@@ -178,6 +199,98 @@ async function setupRemoteTestUser() {
     throw new Error("test setup response did not include user1.apiKey");
   }
   await writeFile(apiKeyPath, apiKey, { mode: 0o600 });
+  return apiKey;
+}
+
+async function openStreamingSubscription(apiKey: string): Promise<{
+  notification: Promise<StreamingNotification>;
+  webSocket: WebSocket;
+}> {
+  const webSocket = new WebSocket(streamURL);
+  const connected = await nextStreamingMessage(webSocket);
+  if (connected.event !== "connected") {
+    throw new Error(
+      `Unexpected streaming handshake: ${JSON.stringify(connected)}`
+    );
+  }
+
+  webSocket.send(
+    JSON.stringify({
+      action: "createSubscriptions",
+      subscriptions: [{ apiKey, topics: ["/users/1"] }],
+    })
+  );
+  const subscribed = await nextStreamingMessage(webSocket);
+  if (subscribed.event !== "subscriptionsCreated") {
+    throw new Error(
+      `Unexpected streaming subscription response: ${JSON.stringify(subscribed)}`
+    );
+  }
+
+  return {
+    notification: nextStreamingMessage(webSocket).then((message) => {
+      if (
+        message.event !== "topicUpdated" ||
+        message.topic !== "/users/1" ||
+        typeof message.version !== "number"
+      ) {
+        throw new Error(
+          `Unexpected streaming notification: ${JSON.stringify(message)}`
+        );
+      }
+      return {
+        event: "topicUpdated",
+        topic: message.topic,
+        version: message.version,
+      } satisfies StreamingNotification;
+    }),
+    webSocket,
+  };
+}
+
+function nextStreamingMessage(
+  webSocket: WebSocket,
+  timeoutMilliseconds = 120_000
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timed out waiting for ${streamURL}`));
+    }, timeoutMilliseconds);
+
+    const onClose = (event: CloseEvent) => {
+      clearTimeout(timeout);
+      reject(
+        new Error(
+          `Streaming socket closed before the expected message (${event.code}: ${event.reason})`
+        )
+      );
+    };
+    const onError = () => {
+      clearTimeout(timeout);
+      reject(new Error(`Streaming socket failed at ${streamURL}`));
+    };
+    const onMessage = (event: MessageEvent) => {
+      clearTimeout(timeout);
+      webSocket.removeEventListener("close", onClose);
+      webSocket.removeEventListener("error", onError);
+      try {
+        resolve(JSON.parse(String(event.data)) as Record<string, unknown>);
+      } catch (error) {
+        reject(
+          new Error(
+            `Streaming socket returned invalid JSON: ${String(event.data)}`,
+            {
+              cause: error,
+            }
+          )
+        );
+      }
+    };
+
+    webSocket.addEventListener("close", onClose, { once: true });
+    webSocket.addEventListener("error", onError, { once: true });
+    webSocket.addEventListener("message", onMessage, { once: true });
+  });
 }
 
 async function waitForZoteroProcess() {
@@ -288,7 +401,7 @@ async function verifyRemote(smoke: SmokeResult) {
     fulltextBody: fulltext.body,
     fulltextStatus: fulltext.status,
     itemStatus: item.status,
-    itemTitle: item.body?.data?.title,
+    itemTitle: readItemTitle(item.body),
     noteInTrash: Boolean(trashedNote),
     trashStatus: trash.status,
   };
@@ -304,6 +417,17 @@ async function verifyRemote(smoke: SmokeResult) {
   }
 
   return remote;
+}
+
+function readItemTitle(value: unknown): unknown {
+  if (!(isRecord(value) && isRecord(value.data))) {
+    return;
+  }
+  return value.data.title;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function apiRequest(path: string, apiKey: string) {
@@ -403,6 +527,8 @@ try {
     ok: true,
     startedAt,
     endpoint: Zotero.Prefs.get("api.url"),
+    streamingEnabled: Zotero.Prefs.get("streaming.enabled"),
+    streamingURL: Zotero.Prefs.get("streaming.url"),
     userID: Zotero.Users.getCurrentUserID(),
     username: Zotero.Users.getCurrentUsername(),
     libraryVersion: Zotero.Libraries.get(Zotero.Libraries.userLibraryID).libraryVersion,

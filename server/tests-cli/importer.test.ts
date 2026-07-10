@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage, Server } from "node:http";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { runImport } from "../cli/lib/importer.mjs";
+import { runImport } from "../cli-src/lib/importer.ts";
 
 const attachmentBytes = Buffer.from("zotero-selfhost importer attachment\n");
 const attachmentMd5 = createHash("md5").update(attachmentBytes).digest("hex");
@@ -20,8 +21,8 @@ writeFileSync(
   recoveryManifestPath,
   `${JSON.stringify({ files: { EEEE6666: recoveredPath }, version: 1 })}\n`
 );
-let origin;
-let server;
+let origin: string;
+let server: Server;
 let targetVersion = 0;
 let uploadCount = 0;
 const target = {
@@ -496,8 +497,8 @@ async function requestText(request) {
   return (await requestBytes(request)).toString("utf8");
 }
 
-async function requestBytes(request) {
-  const chunks = [];
+async function requestBytes(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.from(chunk));
   }

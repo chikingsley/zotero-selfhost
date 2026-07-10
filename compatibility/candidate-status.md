@@ -1,5 +1,15 @@
 # Candidate Server - Official Test Status
 
+## Isolated release candidate
+
+Latest isolated compatibility verification: 2026-07-10 against `https://zotero-selfhost-compatibility.cheez2012.workers.dev/`, Worker version `bbc6bf92-2a35-4f95-b865-c5189d1a0528`, D1 database `zotero-selfhost-compatibility-db`, and R2 bucket `zotero-selfhost-compatibility-attachments`. A disposable Zotero Desktop profile also completed live metadata, deleted-note, full-text, and zipped-attachment synchronization with its compatibility streaming URL enabled while an authenticated WebSocket received the committed `topicUpdated` notification.
+
+The first diagnostic run reported `446 passing`, `22 pending`, and `5 failing` in 25 minutes. One oversized-note request ended with a transient socket close and then passed in a focused `10/10` rerun. The other four reports came from upstream full-text tests directly invoking a DynamoDB helper, which cannot operate on the candidate's D1 state and received an R2 XML response through the AWS endpoint environment.
+
+The runner now redirects only that upstream infrastructure helper through a tracked Node loader to the compatibility deployment's authenticated `/test/fulltext-state` D1 adapter. The upstream checkout and assertions remain unchanged. The complete full-text slice then passed `15/15`, including deindex, reindex, stale-rebuild, and search-gating behavior.
+
+Final clean complete-suite result after adding the D1 adapter: `451 passing`, `22 upstream-pending`, `0 failing` in 26 minutes. The optional host `bsdiff`, `xdelta3`, and `vcdiff` commands were unavailable, so the upstream file test skipped those CLI-generated patch variants; the same algorithms remain covered by the Workers-runtime WASM fixtures.
+
 ## Cloudflare D1/R2 live path
 
 Latest real-client verification: 2026-07-09T09:04:06Z against
@@ -129,18 +139,16 @@ the current Zotero schema at
 
 ## Local Workers runtime safety net
 
-Current fast gate: Cloudflare Workers Vitest integration with the tracked
-`wrangler.jsonc`, all four D1 migrations, isolated local D1/R2/Durable Object
-bindings, and requests through the Worker's exported `fetch()` handler.
+Current fast gate: Cloudflare Workers Vitest integration with the tracked `wrangler.jsonc`, all six D1 migrations, isolated local D1/R2/Durable Object bindings, and requests through the Worker's exported `fetch()` handler.
 
-- `16 passing`, `0 failing` across health/OpenAPI, test-user persistence,
+- `23 passing`, `0 failing` across health/OpenAPI, test-user persistence,
   general item flow, D1 version preconditions, migration state, direct R2
   metadata/ranges, a complete attachment upload/register/download round trip
   through D1/R2, Zotero's serialized Atom multi-content field order, real
   bsdiff/xdelta/vcdiff WASM fixtures, and explicit unsupported-xdiff handling.
   The gate now also covers one-time owner bootstrap, Cloudflare-style owner-key
   recovery, owner administration, authenticated Zotero streaming
-  subscriptions, and `topicUpdated` delivery through `ZoteroStreamHub`.
+  subscriptions, invalid and revoked streaming keys, reconnect/resubscribe behavior, hibernated WebSocket survival across forced Durable Object eviction, and `topicUpdated` delivery through `ZoteroStreamHub`.
 - Pinned official local smoke at Zotero `dataserver`
   `9b640674e94f1817513799fe82124be041b303b2`: `general,version` is `30
   passing`, `0 failing` against local Wrangler D1/R2.

@@ -4,6 +4,7 @@ import "./middleware";
 import "./admin/test-setup";
 import "./admin/tts";
 import "./auth/keys";
+import "./auth/test-credentials";
 import "./library/settings";
 import "./library/tags";
 import "./library/searches";

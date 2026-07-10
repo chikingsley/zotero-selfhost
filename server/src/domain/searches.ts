@@ -1,7 +1,6 @@
 import type { Bindings } from "../bindings";
+import { D1LibraryVersions, type LibraryType } from "./library-versions";
 import { generateZoteroKey, sanitizeZoteroData } from "./zotero";
-
-type LibraryType = "group" | "user";
 
 type SearchFailureCode = 400 | 404 | 412 | 413 | 428;
 
@@ -85,7 +84,11 @@ export const searchNeedsInvalidProp = (
 };
 
 class D1SearchStore implements SearchStore {
-  constructor(private readonly db: D1Database) {}
+  private readonly libraryVersions: D1LibraryVersions;
+
+  constructor(private readonly db: D1Database) {
+    this.libraryVersions = new D1LibraryVersions(db);
+  }
 
   async clearSearches(
     libraryType: LibraryType,
@@ -325,18 +328,10 @@ class D1SearchStore implements SearchStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        `UPDATE libraries
-         SET version = version + 1,
-             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-         WHERE library_type = ? AND library_id = ?
-         RETURNING version`
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? this.getLibraryVersion(libraryType, libraryID);
+    return (
+      (await this.libraryVersions.reserve(libraryType, libraryID, 1, null)) ??
+      this.getLibraryVersion(libraryType, libraryID)
+    );
   }
 
   private async reservePreconditionGuard(
@@ -344,18 +339,12 @@ class D1SearchStore implements SearchStore {
     libraryID: number,
     expectedVersion: number
   ): Promise<boolean> {
-    const token = `if-unmodified:search:${expectedVersion}`;
-    const row = await this.db
-      .prepare(
-        `INSERT INTO write_tokens (library_type, library_id, token)
-         VALUES (?, ?, ?)
-         ON CONFLICT(library_type, library_id, token) DO NOTHING
-         RETURNING token`
-      )
-      .bind(libraryType, libraryID, token)
-      .first<{ token: string }>();
-
-    return Boolean(row);
+    return this.libraryVersions.reservePrecondition(
+      libraryType,
+      libraryID,
+      "search",
+      expectedVersion
+    );
   }
 
   private async ensureLibrary(
@@ -385,14 +374,7 @@ class D1SearchStore implements SearchStore {
     libraryType: LibraryType,
     libraryID: number
   ): Promise<number> {
-    const row = await this.db
-      .prepare(
-        "SELECT version FROM libraries WHERE library_type = ? AND library_id = ?"
-      )
-      .bind(libraryType, libraryID)
-      .first<{ version: number }>();
-
-    return row?.version ?? 0;
+    return this.libraryVersions.get(libraryType, libraryID);
   }
 
   private async getSearchesByKey(

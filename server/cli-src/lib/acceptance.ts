@@ -1,13 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.mjs";
+import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.ts";
 import {
   assertZoteroStopped,
   defaultZoteroApp,
   runZoteroScript,
   writeDisposableProfile,
-} from "./zotero-desktop.mjs";
+} from "./zotero-desktop.ts";
 
 export const runTwoProfileAcceptance = async ({
   execute = false,
@@ -27,7 +27,11 @@ export const runTwoProfileAcceptance = async ({
   });
   const keyResult = await target.json("/keys/current");
   const owner = requireRecord(keyResult.body, "Owner key check");
-  if (!Number.isInteger(owner.userID) || owner.userID < 1) {
+  if (
+    typeof owner.userID !== "number" ||
+    !Number.isInteger(owner.userID) ||
+    owner.userID < 1
+  ) {
     throw new Error("The owner key did not return a valid userID.");
   }
   const ownerCheck = await target.request(`/users/${owner.userID}/keys`);
@@ -59,7 +63,7 @@ export const runTwoProfileAcceptance = async ({
     ? join(temporaryRoot, `zotero-two-profile-${Date.now()}`)
     : mkdtempSync(join(tmpdir(), "zotero-selfhost-two-profile-"));
   mkdirSync(root, { mode: 0o700, recursive: true });
-  const deviceKeys = [];
+  const deviceKeys: string[] = [];
   let succeeded = false;
   try {
     const deviceA = await createDeviceKey(
@@ -187,7 +191,7 @@ const createDeviceKey = async (client, userID, name) => {
   if (typeof key.key !== "string") {
     throw new Error(`${name} key creation did not return a key.`);
   }
-  return key;
+  return { ...key, key: key.key };
 };
 
 const prepareProfiles = async ({

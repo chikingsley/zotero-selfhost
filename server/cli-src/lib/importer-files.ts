@@ -3,12 +3,8 @@ import { createReadStream, mkdtempSync, rmSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import {
-  HTTPResponseError,
-  parsePossibleJSON,
-  requireRecord,
-} from "./http.mjs";
-import { saveImportState } from "./importer-state.mjs";
+import { HTTPResponseError, parsePossibleJSON, requireRecord } from "./http.ts";
+import { saveImportState } from "./importer-state.ts";
 
 export const importFiles = async ({
   attachments,
@@ -96,7 +92,7 @@ export const applyRecoveryManifest = async ({ manifestPath, snapshot }) => {
     if (!metadata.isFile()) {
       throw new Error(`Recovered attachment ${key} is not a regular file.`);
     }
-    const item = items.get(key);
+    const item = items.get(key) as Record<string, unknown> | undefined;
     if (!item) {
       throw new Error(
         `Recovered attachment ${key} is missing from the snapshot.`
@@ -135,11 +131,18 @@ const getTargetAttachmentState = async ({
     return null;
   }
   const item = parsePossibleJSON(await itemResponse.text());
-  const itemData =
-    item && typeof item === "object" && !Array.isArray(item) ? item.data : null;
+  const itemRecord =
+    item && typeof item === "object" && !Array.isArray(item)
+      ? (item as Record<string, unknown>)
+      : null;
+  const itemData = itemRecord?.data;
+  const itemDataRecord =
+    itemData && typeof itemData === "object" && !Array.isArray(itemData)
+      ? (itemData as Record<string, unknown>)
+      : null;
   if (
-    !(itemData && typeof itemData === "object" && !Array.isArray(itemData)) ||
-    cleanMd5(itemData.md5) !== cleanMd5(attachment.md5)
+    !itemDataRecord ||
+    cleanMd5(itemDataRecord.md5) !== cleanMd5(attachment.md5)
   ) {
     return null;
   }
@@ -440,10 +443,12 @@ const uploadDirectTransfer = async ({
     });
     return [];
   }
+  const partSizeBytes = transferRecord.partSizeBytes;
   if (
     transferRecord.kind !== "multipart" ||
-    !Number.isSafeInteger(transferRecord.partSizeBytes) ||
-    transferRecord.partSizeBytes < 1 ||
+    typeof partSizeBytes !== "number" ||
+    !Number.isSafeInteger(partSizeBytes) ||
+    partSizeBytes < 1 ||
     !Array.isArray(transferRecord.parts)
   ) {
     throw new Error(
@@ -451,7 +456,7 @@ const uploadDirectTransfer = async ({
     );
   }
 
-  const completedParts = [];
+  const completedParts: { etag: string; partNumber: number }[] = [];
   for (const [index, rawPart] of transferRecord.parts.entries()) {
     const part = requireRecord(
       rawPart,
@@ -465,11 +470,8 @@ const uploadDirectTransfer = async ({
         `Attachment ${attachment.key} multipart part numbers are not contiguous.`
       );
     }
-    const start = index * transferRecord.partSizeBytes;
-    const end = Math.min(
-      downloaded.size - 1,
-      start + transferRecord.partSizeBytes - 1
-    );
+    const start = index * partSizeBytes;
+    const end = Math.min(downloaded.size - 1, start + partSizeBytes - 1);
     const response = await putFileRangeWithRetry({
       attachmentKey: attachment.key,
       client,
@@ -548,7 +550,7 @@ const putFileRangeWithRetry = async ({
 };
 
 const fetchExternalWithRetry = async (client, url, init, attachmentKey) => {
-  let lastError;
+  let lastError: unknown;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const response = await client.fetchImpl(url, init);

@@ -1,8 +1,4 @@
-import {
-  getRequestApiKey,
-  isAdminRequest,
-  isCompatibilityTestMode,
-} from "../../../domain/auth";
+import { getRequestApiKey, isAdminRequest } from "../../../domain/auth";
 import {
   createKeyStore,
   createPrimaryKeyStore,
@@ -18,6 +14,7 @@ import {
   readKeyRequestBody,
   requireKeyAdmin,
 } from "../support";
+import { resolveCompatibilityTestUserID } from "./test-credentials";
 
 compatibility.get("/keys/current", async (c) => {
   const apiKey = getRequestApiKey(c);
@@ -194,27 +191,6 @@ compatibility.post("/users/:userID/keys", async (c) => {
   return c.json(managedKeyInfo(key), 201);
 });
 
-compatibility.post("/keys", async (c) => {
-  if (!isCompatibilityTestMode(c.env)) {
-    return c.text("Password login is not enabled", 404);
-  }
-
-  const body = await readKeyRequestBody(c);
-  const keyStore = createKeyStore(c.env);
-  const userID = await keyStore.resolveCredentials(body);
-  if (userID === null) {
-    return c.text("Invalid login", 403);
-  }
-
-  const key = await keyStore.createKey({
-    access: body.access,
-    name: body.name,
-    userID,
-  });
-
-  return c.json(managedKeyInfo(key), 201);
-});
-
 compatibility.put("/keys/:apiKey", async (c) => {
   const apiKey = c.req.param("apiKey");
   const keyStore = createKeyStore(c.env);
@@ -224,9 +200,7 @@ compatibility.put("/keys/:apiKey", async (c) => {
   }
 
   const body = await readKeyRequestBody(c);
-  const credentialUserID = isCompatibilityTestMode(c.env)
-    ? await keyStore.resolveCredentials(body)
-    : null;
+  const credentialUserID = await resolveCompatibilityTestUserID(c.env, body);
   const requestApiKey = getRequestApiKey(c);
   const isAdmin = await isAdminRequest(c);
   if (

@@ -1,8 +1,8 @@
 import { createFullTextStore } from "../../../domain/fulltext";
-import { createCompatibilityStore } from "../../../domain/storage";
 import { generateZoteroKey } from "../../../domain/zotero";
 import { compatibility } from "../router";
 import { requireCompatibilityTestAdmin } from "../support";
+import { resetCompatibilityTestState } from "./test-state";
 
 compatibility.post("/test/setup", async (c) => {
   const adminError = await requireCompatibilityTestAdmin(c);
@@ -15,10 +15,14 @@ compatibility.post("/test/setup", async (c) => {
   const user1Key =
     c.env.COMPATIBILITY_TEST_API_KEY || generateZoteroKey().toLowerCase();
   const user2Key = generateZoteroKey().toLowerCase();
-  const store = createCompatibilityStore(c.env);
-
   return c.json(
-    await store.setupTestUsers(userID, userID2, user1Key, user2Key)
+    await resetCompatibilityTestState(
+      c.env.DB,
+      userID,
+      userID2,
+      user1Key,
+      user2Key
+    )
   );
 });
 
