@@ -1,6 +1,6 @@
 {
   "name": "zotero-selfhost-server",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Zotero-compatible self-hosted sync server for Cloudflare Workers, D1, R2, and Durable Objects",
   "author": "Simon Peacock",
   "license": "MIT",

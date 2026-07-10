@@ -29,6 +29,7 @@
 - Standardized production smoke tooling on `SELFHOST_API_KEY`, removed the obsolete test-key variable, and consolidated the live installation to one owner key plus one Desktop device key.
 - Added cross-platform native Zotero Desktop onboarding through the stock login-session flow, including a self-hosted owner authorization page and the dry-run-first `connect` command. Existing-profile migration retains the backed-up JavaScript runner as a fallback rather than using it for normal device onboarding.
 - Routed login-session reads and writes through a primary-consistent D1 session so browser authorization can immediately observe a session created by Zotero across separate Worker requests.
+- Deployed and passed the production native-login smoke test, including an existing Zotero.org user-ID override, owner-authorized device-key creation, native polling response, key scope/label verification, and disposable-key cleanup.
 - Added npm package metadata, removed bundled dependency test fixtures from release archives, and added GitHub CI and trusted-publishing workflows.
 
 - Added dry-run-first, resumable Zotero.org personal-library import with object key preservation, personal user-URI rewriting, source stability checks, and attachment MD5 verification.
