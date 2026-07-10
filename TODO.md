@@ -2,6 +2,8 @@
 
 This file contains open work only. Completed changes belong in `CHANGELOG.md`; measured protocol results belong in `compatibility/candidate-status.md`.
 
+Current status: the production Worker, personal library, attachment storage, and migrated Zotero Desktop profile are working. The items below are public-release work, additional rollback and failure drills, product decisions, and later simplification; they do not indicate that the current personal deployment is broken.
+
 ## Release
 
 - [ ] Exercise the explicit Desktop rollback command against the real migration backup, verify the Zotero.org profile restoration, and repeat the cutover.
