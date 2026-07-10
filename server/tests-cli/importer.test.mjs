@@ -9,21 +9,30 @@ import { runImport } from "../cli/lib/importer.mjs";
 
 const attachmentBytes = Buffer.from("zotero-selfhost importer attachment\n");
 const attachmentMd5 = createHash("md5").update(attachmentBytes).digest("hex");
+const recoveredBytes = Buffer.from("recovered archive attachment\n");
 const sourceVersion = 9;
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "zotero-importer-test-"));
 const statePath = join(temporaryDirectory, "import-state.json");
+const recoveredPath = join(temporaryDirectory, "unavailable.pdf");
+const recoveryManifestPath = join(temporaryDirectory, "recovery.json");
+writeFileSync(recoveredPath, recoveredBytes);
+writeFileSync(
+  recoveryManifestPath,
+  `${JSON.stringify({ files: { EEEE6666: recoveredPath }, version: 1 })}\n`
+);
 let origin;
 let server;
 let targetVersion = 0;
 let uploadCount = 0;
 const target = {
   collections: [],
-  file: null,
+  files: new Map(),
   fulltext: {},
   items: [],
   searches: [],
   settings: {},
-  upload: null,
+  uploadParts: new Map(),
+  uploads: new Map(),
 };
 
 const sourceObjects = {
@@ -51,6 +60,15 @@ const sourceObjects = {
       mtime: "1700000000000",
       parentItem: "BBBB3333",
       title: "Attachment",
+    }),
+    envelope({
+      contentType: "application/pdf",
+      filename: "unavailable.pdf",
+      itemType: "attachment",
+      key: "EEEE6666",
+      linkMode: "imported_file",
+      parentItem: "BBBB3333",
+      title: "Unavailable attachment",
     }),
   ],
   searches: [
@@ -99,12 +117,26 @@ test("plans, executes, verifies, and resumes a personal-library import", async (
     targetURL: origin,
   });
   assert.equal(dryRun.executed, false);
-  assert.equal(dryRun.summary.items, 2);
+  assert.equal(dryRun.summary.items, 3);
   assert.equal(dryRun.summary.attachments, 1);
+  assert.equal(dryRun.summary.unavailableAttachments, 1);
+  const recoveredDryRun = await runImport({
+    log: () => undefined,
+    recoveryManifestPath,
+    sourceApiKey: "source-key",
+    sourceURL,
+    statePath,
+    targetApiKey: "target-owner-key",
+    targetURL: origin,
+  });
+  assert.equal(recoveredDryRun.summary.attachments, 2);
+  assert.equal(recoveredDryRun.summary.recoveredAttachments, 1);
+  assert.equal(recoveredDryRun.summary.unavailableAttachments, 0);
 
   const imported = await runImport({
     execute: true,
     log: () => undefined,
+    recoveryManifestPath,
     sourceApiKey: "source-key",
     sourceURL,
     statePath,
@@ -112,12 +144,13 @@ test("plans, executes, verifies, and resumes a personal-library import", async (
     targetURL: origin,
   });
   assert.equal(imported.executed, true);
-  assert.equal(target.items.length, 2);
+  assert.equal(target.items.length, 3);
   assert.equal(
     target.items[0].relations["dc:relation"],
     "http://zotero.org/users/1/items/CCCC4444"
   );
-  assert.deepEqual(target.file, attachmentBytes);
+  assert.deepEqual(target.files.get("CCCC4444"), attachmentBytes);
+  assert.deepEqual(target.files.get("EEEE6666"), recoveredBytes);
   assert.deepEqual(target.fulltext.CCCC4444, {
     content: "Indexed attachment",
     indexedChars: 18,
@@ -148,6 +181,7 @@ test("plans, executes, verifies, and resumes a personal-library import", async (
     execute: true,
     log: () => undefined,
     merge: true,
+    recoveryManifestPath,
     sourceApiKey: "source-key",
     sourceURL,
     statePath,
@@ -155,8 +189,8 @@ test("plans, executes, verifies, and resumes a personal-library import", async (
     targetURL: origin,
   });
   assert.equal(resumed.executed, true);
-  assert.equal(target.items.length, 2);
-  assert.equal(uploadCount, 1);
+  assert.equal(target.items.length, 3);
+  assert.equal(uploadCount, 2);
 });
 
 async function route(request, response) {
@@ -244,8 +278,11 @@ async function targetRoute(url, request, response) {
     }
     return objectList(response, target.items.map(envelope), targetVersion);
   }
-  if (url.pathname === "/users/1/items/CCCC4444") {
-    const item = target.items.find((candidate) => candidate.key === "CCCC4444");
+  const itemMatch = url.pathname.match(/^\/users\/1\/items\/([A-Z0-9]{8})$/u);
+  if (itemMatch) {
+    const item = target.items.find(
+      (candidate) => candidate.key === itemMatch[1]
+    );
     return item
       ? json(response, 200, envelope(item))
       : notFound(response, request);
@@ -283,38 +320,99 @@ async function targetRoute(url, request, response) {
     response.statusCode = 204;
     return response.end();
   }
-  if (url.pathname === "/users/1/items/CCCC4444/file") {
+  const directPutMatch = url.pathname.match(
+    /^\/r2\/([A-Z0-9]{8})(?:\/part\/(\d+))?$/u
+  );
+  if (directPutMatch && request.method === "PUT") {
+    const [, key, rawPartNumber] = directPutMatch;
+    const bytes = Buffer.from(await requestBytes(request));
+    if (rawPartNumber) {
+      const parts = target.uploadParts.get(key) ?? new Map();
+      parts.set(Number(rawPartNumber), bytes);
+      target.uploadParts.set(key, parts);
+      response.setHeader("ETag", `"etag-${key}-${rawPartNumber}"`);
+    } else {
+      target.uploads.set(key, bytes);
+    }
+    response.statusCode = 200;
+    return response.end();
+  }
+  const completionMatch = url.pathname.match(
+    /^\/users\/1\/items\/([A-Z0-9]{8})\/file\/direct\/upload-[A-Z0-9]{8}\/complete$/u
+  );
+  if (completionMatch && request.method === "POST") {
+    const key = completionMatch[1];
+    const { parts } = await requestJSON(request);
+    if (parts.length > 0) {
+      const uploadedParts = target.uploadParts.get(key);
+      target.uploads.set(
+        key,
+        Buffer.concat(
+          parts.map(({ partNumber }) => uploadedParts.get(partNumber))
+        )
+      );
+    }
+    uploadCount += 1;
+    response.statusCode = 204;
+    return response.end();
+  }
+  const abortMatch = url.pathname.match(
+    /^\/users\/1\/items\/([A-Z0-9]{8})\/file\/direct\/upload-[A-Z0-9]{8}$/u
+  );
+  if (abortMatch && request.method === "DELETE") {
+    target.uploadParts.delete(abortMatch[1]);
+    target.uploads.delete(abortMatch[1]);
+    response.statusCode = 204;
+    return response.end();
+  }
+  const fileMatch = url.pathname.match(
+    /^\/users\/1\/items\/([A-Z0-9]{8})\/file$/u
+  );
+  if (fileMatch) {
+    const key = fileMatch[1];
     if (request.method === "GET") {
-      if (!target.file) {
+      const file = target.files.get(key);
+      if (!file) {
         return notFound(response, request);
       }
+      const md5 = createHash("md5").update(file).digest("hex");
       response.writeHead(302, {
-        Location: `${origin}/download/CCCC4444`,
-        "Zotero-File-MD5": attachmentMd5,
+        Location: `${origin}/download/${key}`,
+        "Zotero-File-MD5": md5,
       });
       return response.end();
     }
     const body = new URLSearchParams(await requestText(request));
     if (body.has("upload")) {
-      target.file = target.upload;
+      target.files.set(key, target.uploads.get(key));
       targetVersion += 1;
       response.writeHead(204, versionHeaders(targetVersion));
       return response.end();
     }
+    const partSizeBytes = 10;
+    const size = Number(body.get("filesize"));
     return json(response, 200, {
-      params: {},
-      uploadKey: "upload-1",
-      url: `${origin}/users/1/items/CCCC4444/file/upload/upload-1`,
+      transfer:
+        key === "CCCC4444"
+          ? {
+              headers: { "content-type": "text/plain" },
+              kind: "single",
+              url: `${origin}/r2/${key}`,
+            }
+          : {
+              kind: "multipart",
+              partSizeBytes,
+              parts: Array.from(
+                { length: Math.ceil(size / partSizeBytes) },
+                (_, index) => ({
+                  headers: {},
+                  partNumber: index + 1,
+                  url: `${origin}/r2/${key}/part/${index + 1}`,
+                })
+              ),
+            },
+      uploadKey: `upload-${key}`,
     });
-  }
-  if (
-    url.pathname === "/users/1/items/CCCC4444/file/upload/upload-1" &&
-    request.method === "POST"
-  ) {
-    target.upload = Buffer.from(await requestBytes(request));
-    uploadCount += 1;
-    response.statusCode = 201;
-    return response.end();
   }
   return notFound(response, request);
 }

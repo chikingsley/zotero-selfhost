@@ -14,7 +14,11 @@ import {
   readSnapshot,
   remapSnapshotUserIdentity,
 } from "./importer-data.mjs";
-import { cleanMd5, importFiles } from "./importer-files.mjs";
+import {
+  applyRecoveryManifest,
+  cleanMd5,
+  importFiles,
+} from "./importer-files.mjs";
 import {
   defaultImportStatePath,
   loadOrCreateImportState,
@@ -31,6 +35,7 @@ export const runImport = async ({
   includeFulltext = true,
   log = console.log,
   merge = false,
+  recoveryManifestPath,
   resetState = false,
   sourceApiKey,
   sourceURL = "https://api.zotero.org",
@@ -70,6 +75,12 @@ export const runImport = async ({
     sourceKeyInfo.userID,
     targetKeyInfo.userID
   );
+  const recoveryFiles = recoveryManifestPath
+    ? await applyRecoveryManifest({
+        manifestPath: recoveryManifestPath,
+        snapshot,
+      })
+    : new Map();
   const targetInventory = await readInventory(target, targetKeyInfo.userID);
   const targetCount = inventoryObjectCount(targetInventory);
   if (execute && targetCount > 0 && !merge) {
@@ -81,6 +92,7 @@ export const runImport = async ({
   const summary = summarizeSnapshot(snapshot, {
     includeFiles,
     includeFulltext,
+    recoveredAttachments: recoveryFiles.size,
     targetCount,
   });
   printSummary(summary, { execute, log, merge });
@@ -145,6 +157,7 @@ export const runImport = async ({
   if (includeFiles) {
     await importFiles({
       attachments: snapshot.attachments,
+      recoveryFiles,
       source,
       sourceUserID: sourceKeyInfo.userID,
       state,
@@ -200,6 +213,7 @@ const writeObjectBatches = async ({
       headers: {
         "Content-Type": "application/json",
         "If-Unmodified-Since-Version": String(targetLibraryVersion),
+        "User-Agent": "Zotero Self-Host Importer",
       },
       method: "POST",
     });
@@ -353,9 +367,9 @@ const verifyImport = async ({
       const md5 = cleanMd5(
         response.headers.get("Zotero-File-MD5") ?? response.headers.get("ETag")
       );
-      if (md5 && md5 !== expected.storageMd5) {
+      if (md5 && md5 !== expected.itemMd5) {
         throw new Error(
-          `Attachment ${attachment.key} target MD5 ${md5} does not match ${expected.storageMd5}.`
+          `Attachment ${attachment.key} target MD5 ${md5} does not match ${expected.itemMd5}.`
         );
       }
     }
@@ -426,16 +440,20 @@ const assertOwnerKey = async (client, userID) => {
 
 const summarizeSnapshot = (
   snapshot,
-  { includeFiles, includeFulltext, targetCount }
+  { includeFiles, includeFulltext, recoveredAttachments, targetCount }
 ) => ({
   attachments: includeFiles ? snapshot.attachments.length : 0,
   collections: snapshot.collections.length,
   fulltext: includeFulltext ? Object.keys(snapshot.fulltextVersions).length : 0,
   items: snapshot.items.length,
   libraryVersion: snapshot.libraryVersion,
+  recoveredAttachments: includeFiles ? recoveredAttachments : 0,
   searches: snapshot.searches.length,
   settings: Object.keys(snapshot.settings).length,
   targetExistingObjects: targetCount,
+  unavailableAttachments: includeFiles
+    ? snapshot.unavailableAttachmentKeys.length
+    : 0,
 });
 
 const printSummary = (summary, { execute, log, merge }) => {
@@ -444,10 +462,17 @@ const printSummary = (summary, { execute, log, merge }) => {
   log(`  Collections:            ${summary.collections}`);
   log(`  Items (including trash): ${summary.items}`);
   log(`  Stored attachments:      ${summary.attachments}`);
+  log(`  Recovered archive files:  ${summary.recoveredAttachments}`);
+  log(`  Unavailable stored files: ${summary.unavailableAttachments}`);
   log(`  Saved searches:          ${summary.searches}`);
   log(`  Synced settings:         ${summary.settings}`);
   log(`  Full-text records:       ${summary.fulltext}`);
   log(`  Existing target objects: ${summary.targetExistingObjects}`);
+  if (summary.unavailableAttachments > 0) {
+    log(
+      "  Note: unavailable source files retain their attachment metadata but have no bytes to copy or verify."
+    );
+  }
   if (!execute) {
     log(
       "\nDry run only. Re-run with --execute after reviewing this inventory."
@@ -493,16 +518,26 @@ const assertObjectData = (expected, actual, label) => {
   const actualByKey = new Map(actual.map((object) => [object.key, object]));
   for (const expectedObject of expected) {
     const actualObject = actualByKey.get(expectedObject.key);
+    const comparableExpected = comparableObject(expectedObject, label);
+    const comparableActual = comparableObject(actualObject, label);
     if (
       !actualObject ||
-      JSON.stringify(stableValue(actualObject)) !==
-        JSON.stringify(stableValue(expectedObject))
+      JSON.stringify(stableValue(comparableActual)) !==
+        JSON.stringify(stableValue(comparableExpected))
     ) {
       throw new Error(
         `Target ${label} data does not match source object ${expectedObject.key}.`
       );
     }
   }
+};
+
+const comparableObject = (object, label) => {
+  if (!(object && label === "items")) {
+    return object;
+  }
+  const { dateModified: _dateModified, ...comparable } = object;
+  return comparable;
 };
 
 const assertSettingData = (expected, actual) => {

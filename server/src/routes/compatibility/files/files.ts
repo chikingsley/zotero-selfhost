@@ -1,13 +1,17 @@
+import type { Bindings } from "../../../bindings";
 import { getRequestApiKey } from "../../../domain/auth";
 import {
   type AttachmentFileRecord,
+  type AttachmentUploadScope,
   type CompatibilityStore,
   createCompatibilityStore,
+  directMultipartPartSize,
 } from "../../../domain/storage";
 import {
   applyZoteroPatch,
   PatchAlgorithmUnavailableError,
 } from "../../../lib/patch";
+import { hasR2SigningConfig, signR2PutUrl } from "../../../lib/r2-signing";
 import { compatibility } from "../router";
 import {
   attachItemMeta,
@@ -76,6 +80,113 @@ const buildAttachmentUploadInput = (
   sizeBytes,
   zip: params.get("zip") === "1" || Boolean(zipMd5),
 });
+
+const createDirectTransfer = async (
+  env: Bindings,
+  store: CompatibilityStore,
+  uploadKey: string,
+  scope: AttachmentUploadScope
+) => {
+  const upload = await store.prepareDirectAttachmentUpload(uploadKey, scope);
+  if (!upload) {
+    throw new Error("Direct attachment upload could not be prepared");
+  }
+  if (upload.strategy === "single") {
+    const signed = await signR2PutUrl(env, upload.r2Key, {
+      contentType: upload.contentType,
+    });
+    return {
+      headers: signed.headers,
+      kind: "single" as const,
+      url: signed.url,
+    };
+  }
+  if (!upload.multipartUploadId) {
+    throw new Error("Direct multipart upload did not include an upload ID");
+  }
+  const partSizeBytes = directMultipartPartSize(upload.sizeBytes);
+  const partCount = Math.ceil(upload.sizeBytes / partSizeBytes);
+  const parts = await Promise.all(
+    Array.from({ length: partCount }, async (_, index) => {
+      const partNumber = index + 1;
+      const signed = await signR2PutUrl(env, upload.r2Key, {
+        partNumber,
+        uploadId: upload.multipartUploadId,
+      });
+      return {
+        headers: signed.headers,
+        partNumber,
+        url: signed.url,
+      };
+    })
+  );
+  return {
+    kind: "multipart" as const,
+    partSizeBytes,
+    parts,
+  };
+};
+
+const parseDirectUploadParts = async (
+  request: Request
+): Promise<{ etag: string; partNumber: number }[] | null> => {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return null;
+  }
+  if (!(isRecord(body) && Array.isArray(body.parts))) {
+    return null;
+  }
+  const parts: { etag: string; partNumber: number }[] = [];
+  for (const part of body.parts) {
+    if (
+      !isRecord(part) ||
+      typeof part.etag !== "string" ||
+      !part.etag.trim() ||
+      typeof part.partNumber !== "number" ||
+      !Number.isSafeInteger(part.partNumber) ||
+      part.partNumber < 1
+    ) {
+      return null;
+    }
+    parts.push({ etag: part.etag, partNumber: part.partNumber });
+  }
+  return parts;
+};
+
+const completeDirectUpload = async (
+  request: Request,
+  store: CompatibilityStore,
+  uploadKey: string,
+  scope: AttachmentUploadScope
+): Promise<Response> => {
+  const parts = await parseDirectUploadParts(request);
+  if (!parts) {
+    return new Response("Invalid direct upload completion body", {
+      status: 400,
+    });
+  }
+  const result = await store.completeDirectAttachmentUpload(
+    uploadKey,
+    scope,
+    parts
+  );
+  if (!result.found) {
+    return new Response("Upload key not found", { status: 404 });
+  }
+  if (result.invalidParts) {
+    return new Response("Invalid multipart upload parts", { status: 400 });
+  }
+  if (result.sizeMismatch) {
+    return new Response(
+      `Uploaded object size ${result.actualSize ?? "unknown"} does not match authorization`,
+      { status: 409 }
+    );
+  }
+  return new Response(null, { status: 204 });
+};
 
 const rawAttachmentContentType = (file: AttachmentFileRecord): string =>
   file.zip ? "application/zip" : formatAttachmentContentType(file);
@@ -309,6 +420,46 @@ compatibility.post(
     }
 
     return c.body(null, 201);
+  }
+);
+
+compatibility.post(
+  "/groups/:groupID/items/:itemKey/file/direct/:uploadKey/complete",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupFileEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+    return completeDirectUpload(c.req.raw, store, c.req.param("uploadKey"), {
+      itemKey: c.req.param("itemKey"),
+      libraryID: groupID,
+      libraryType: "group",
+    });
+  }
+);
+
+compatibility.delete(
+  "/groups/:groupID/items/:itemKey/file/direct/:uploadKey",
+  async (c) => {
+    const groupID = parseNumericID(c.req.param("groupID"));
+    if (groupID === null) {
+      return c.text("Invalid groupID", 400);
+    }
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireGroupFileEdit(c, store, groupID))) {
+      return c.text("Invalid key", 403);
+    }
+    return (await store.abortDirectAttachmentUpload(c.req.param("uploadKey"), {
+      itemKey: c.req.param("itemKey"),
+      libraryID: groupID,
+      libraryType: "group",
+    }))
+      ? c.body(null, 204)
+      : c.text("Upload key not found", 404);
   }
 );
 
@@ -687,6 +838,26 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
     getGroupUploadBaseURL(c, groupID, itemKey)
   );
 
+  if (params.get("direct") === "1") {
+    if (!hasR2SigningConfig(c.env)) {
+      await store.abortDirectAttachmentUpload(authorization.uploadKey, {
+        itemKey,
+        libraryID: groupID,
+        libraryType: "group",
+      });
+      return c.text("Direct R2 uploads are not configured", 503);
+    }
+    return c.json({
+      transfer: await createDirectTransfer(
+        c.env,
+        store,
+        authorization.uploadKey,
+        { itemKey, libraryID: groupID, libraryType: "group" }
+      ),
+      uploadKey: authorization.uploadKey,
+    });
+  }
+
   if (params.get("params") === "1") {
     return c.json({
       params: {},
@@ -730,6 +901,46 @@ compatibility.post(
     }
 
     return c.body(null, 201);
+  }
+);
+
+compatibility.post(
+  "/users/:userID/items/:itemKey/file/direct/:uploadKey/complete",
+  async (c) => {
+    const userID = parseNumericID(c.req.param("userID"));
+    if (userID === null) {
+      return c.text("Invalid userID", 400);
+    }
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireUserWrite(c, store, userID))) {
+      return c.text("Invalid key", 403);
+    }
+    return completeDirectUpload(c.req.raw, store, c.req.param("uploadKey"), {
+      itemKey: c.req.param("itemKey"),
+      libraryID: userID,
+      libraryType: "user",
+    });
+  }
+);
+
+compatibility.delete(
+  "/users/:userID/items/:itemKey/file/direct/:uploadKey",
+  async (c) => {
+    const userID = parseNumericID(c.req.param("userID"));
+    if (userID === null) {
+      return c.text("Invalid userID", 400);
+    }
+    const store = createCompatibilityStore(c.env);
+    if (!(await requireUserWrite(c, store, userID))) {
+      return c.text("Invalid key", 403);
+    }
+    return (await store.abortDirectAttachmentUpload(c.req.param("uploadKey"), {
+      itemKey: c.req.param("itemKey"),
+      libraryID: userID,
+      libraryType: "user",
+    }))
+      ? c.body(null, 204)
+      : c.text("Upload key not found", 404);
   }
 );
 
@@ -1360,6 +1571,26 @@ compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
     uploadInput,
     getUploadBaseURL(c, userID, itemKey)
   );
+
+  if (params.get("direct") === "1") {
+    if (!hasR2SigningConfig(c.env)) {
+      await store.abortDirectAttachmentUpload(authorization.uploadKey, {
+        itemKey,
+        libraryID: userID,
+        libraryType: "user",
+      });
+      return c.text("Direct R2 uploads are not configured", 503);
+    }
+    return c.json({
+      transfer: await createDirectTransfer(
+        c.env,
+        store,
+        authorization.uploadKey,
+        { itemKey, libraryID: userID, libraryType: "user" }
+      ),
+      uploadKey: authorization.uploadKey,
+    });
+  }
 
   if (params.get("params") === "1") {
     return c.json({

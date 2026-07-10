@@ -3,6 +3,10 @@ interface EphemeralBindings {
   COMPATIBILITY_TEST_ADMIN_TOKEN?: string;
   COMPATIBILITY_TEST_API_KEY?: string;
   DEPLOYMENT_MODE: "compatibility-test" | "production";
+  R2_ACCESS_KEY_ID?: string;
+  R2_ACCOUNT_ID?: string;
+  R2_BUCKET_NAME?: string;
+  R2_SECRET_ACCESS_KEY?: string;
   RECOVERY_TOKEN?: string;
   TEST_MIGRATIONS?: unknown;
   TTS_TEST_KEY?: string;
@@ -12,4 +16,4 @@ interface EphemeralBindings {
 // values are intentionally ephemeral: setup/recovery secrets are installed only
 // for the duration of a CLI operation, while compatibility bindings exist only
 // in the isolated Workers Vitest/official-oracle environment.
-export type Bindings = Omit<Env, "DEPLOYMENT_MODE"> & EphemeralBindings;
+export type Bindings = Omit<Env, keyof EphemeralBindings> & EphemeralBindings;

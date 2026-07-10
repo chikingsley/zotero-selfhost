@@ -1,5 +1,67 @@
+# Changelog
 
 ## Unreleased
+
+- Cut over `zotero.peacockery.studio` to the final `zotero-selfhost` Worker,
+  `zotero-selfhost-db` D1 database, `zotero-selfhost-attachments` R2 bucket,
+  and `ZoteroStreamHub` Durable Object while retaining the legacy stack for
+  rollback.
+- Backed up and migrated the legacy D1/R2 data, verified the D1 export and
+  imported rows, and verified copied R2 attachment bytes, ZIP structure, and
+  hashes.
+- Verified disposable Zotero Desktop A -> B -> A metadata and attachment
+  convergence through both the fallback Workers URL and production custom
+  domain, with acceptance records and temporary device keys removed afterward.
+- Fixed live Desktop attachment downloads by preserving redirect metadata and
+  exposing the required Zotero file headers through CORS.
+- Made Desktop automation wait for propagated Worker secrets and use native
+  macOS focus and clipboard operations for reliable Zotero 9 UI execution.
+- Completed the first authenticated, non-writing production import inventory:
+  414 Zotero.org items and 10 collections, 61 verifiable stored files, 113
+  stored-file records without retrievable source bytes, 164 full-text records,
+  48 settings, and one three-item disposable target smoke tree.
+- Changed import planning so attachment metadata whose source bytes are already
+  unavailable is preserved and reported separately instead of blocking every
+  otherwise verifiable file from migration.
+- Confirmed the default local Zotero storage also has no file bytes for those
+  113 unavailable cloud attachments; 103 matching key directories are empty
+  and the other 10 are absent.
+- Added a versioned local recovery manifest that hashes reviewed archive files
+  during planning and again before upload without modifying Zotero.org or the
+  active Desktop profile.
+- Restored and verified the 4.6 GB books archive from `gmk-server`, resolved 108
+  attachment records to reviewed archive files, and completed a second dry run
+  with 169 verifiable stored files and 5 metadata-only records remaining.
+- Added a shared direct-R2 attachment transfer mode: one presigned PUT below
+  64 MiB and independently retryable multipart PUTs from 64 MiB upward, followed by
+  Worker-side completion/size verification and the existing Zotero registration
+  step. Kept stock Zotero's form-POST endpoint as a transport compatibility
+  edge because R2 does not support presigned HTML form POST.
+- Added bucket-scoped R2 signing credentials to setup/onboarding and covered
+  direct single and multipart importer behavior without passing file bytes
+  through the Worker.
+- Made the self-host installation owner unlimited at the Zotero protocol quota
+  layer so attachment capacity is governed by the owner's R2 account instead
+  of Zotero's hosted-service 300 MB default.
+- Preserved valid newline, tab, and carriage-return whitespace in Zotero object
+  strings while continuing to strip invalid control characters.
+- Corrected importer resume and verification for compressed Zotero attachments
+  by comparing the protocol file header to the uncompressed item MD5 while
+  retaining the separately calculated ZIP-object MD5 in import state.
+- Marked importer object writes as Zotero-client reconciliation so explicit
+  source `dateModified` timestamps survive corrective merge passes.
+- Excluded server-managed item `dateModified` from cross-server equality
+  verification while continuing to compare every substantive item field.
+- Canonicalized null unavailable-attachment `md5` and `mtime` fields to absent
+  values when reading Zotero.org, matching the self-host API representation.
+- Made item deletion abort queued multipart uploads and remove attachment-upload
+  state, full-text rows, and R2 objects that no remaining attachment references.
+- Completed and verified the production personal-library import at source
+  version 1394: 10 collections, 414 items, 169 attachment files (including 108
+  reviewed archive recoveries), 48 settings, and 164 full-text records. Five
+  explicitly accepted unavailable attachments remain metadata-only.
+- Passed live production direct-upload smoke tests for both a 16-byte single
+  PUT and a 104,857,601-byte multipart object, with disposable records removed.
 
 - Added dry-run-first, resumable Zotero.org personal-library import with object
   key preservation, personal user-URI rewriting, source stability checks, and
@@ -94,10 +156,6 @@
 - Added Zotero-compatible settings storage and routes for user and group libraries.
 - Added D1 settings schema, shared library-version integration, setting validation, large integer preservation, and group admin-only settings guards.
 - Documented settings compatibility status in docs/settings-compatibility.md.
-# Changelog
-
-## Unreleased
-
 - Added repo planning docs for the full Zotero-compatible server path.
 - Added compatibility and references structure.
 - Moved raw upstream/reference inputs under `references/`.

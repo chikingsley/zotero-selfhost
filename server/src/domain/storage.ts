@@ -99,9 +99,33 @@ interface AttachmentUploadInput {
 interface AttachmentUploadAuthorization {
   contentType: string;
   prefix: string;
+  r2Key: string;
+  sizeBytes: number;
   suffix: string;
   uploadKey: string;
   url: string;
+}
+
+export interface DirectAttachmentUpload {
+  contentType: string;
+  found: boolean;
+  multipartUploadId?: string;
+  r2Key: string;
+  sizeBytes: number;
+  strategy: "multipart" | "single";
+}
+
+export interface AttachmentUploadScope {
+  itemKey: string;
+  libraryID: number;
+  libraryType: "group" | "user";
+}
+
+interface DirectAttachmentCompletion {
+  actualSize?: number;
+  found: boolean;
+  invalidParts?: boolean;
+  sizeMismatch?: boolean;
 }
 
 interface AttachmentUploadStoreResult {
@@ -128,6 +152,10 @@ interface AttachmentObjectResult {
 }
 
 export interface CompatibilityStore {
+  abortDirectAttachmentUpload: (
+    uploadKey: string,
+    scope: AttachmentUploadScope
+  ) => Promise<boolean>;
   addGroupUsers: (groupID: number, users: GroupUserInput[]) => Promise<void>;
   associateExistingAttachmentFile: (
     userID: number,
@@ -153,6 +181,11 @@ export interface CompatibilityStore {
   ) => Promise<AttachmentUploadAuthorization>;
   clearGroupLibrary: (groupID: number) => Promise<void>;
   clearUserLibrary: (userID: number) => Promise<void>;
+  completeDirectAttachmentUpload: (
+    uploadKey: string,
+    scope: AttachmentUploadScope,
+    parts: R2UploadedPart[]
+  ) => Promise<DirectAttachmentCompletion>;
   createGroup: (input: CreateGroupInput) => Promise<GroupRecord>;
   createGroupItems: (
     groupID: number,
@@ -224,6 +257,10 @@ export interface CompatibilityStore {
   listGroupUsers: (groupID: number) => Promise<GroupUserRecord[]>;
   listItems: (userID: number, itemKeys?: string[]) => Promise<ItemListResult>;
   listVisibleGroups: (userID: number) => Promise<GroupRecord[]>;
+  prepareDirectAttachmentUpload: (
+    uploadKey: string,
+    scope: AttachmentUploadScope
+  ) => Promise<DirectAttachmentUpload | null>;
   registerAttachmentUpload: (
     userID: number,
     itemKey: string,
@@ -266,6 +303,17 @@ export const createCompatibilityStore = (env: Bindings): CompatibilityStore =>
   new D1CompatibilityStore(env.DB, env.ATTACHMENTS);
 
 const defaultStorageQuotaMB = 300;
+export const directSinglePutThresholdBytes = 64 * 1024 * 1024;
+const directMultipartBasePartBytes = 16 * 1024 * 1024;
+const r2MaximumMultipartParts = 10_000;
+
+export const directMultipartPartSize = (sizeBytes: number): number => {
+  const minimumForPartLimit = Math.ceil(sizeBytes / r2MaximumMultipartParts);
+  const mebibyte = 1024 * 1024;
+  const roundedForPartLimit =
+    Math.ceil(minimumForPartLimit / mebibyte) * mebibyte;
+  return Math.max(directMultipartBasePartBytes, roundedForPartLimit);
+};
 
 const defaultKeyAccess = () => ({
   groups: { all: { library: true, write: true } },
@@ -476,6 +524,8 @@ class D1CompatibilityStore implements CompatibilityStore {
     return {
       contentType: input.contentType ?? "application/octet-stream",
       prefix: "",
+      r2Key,
+      sizeBytes: input.sizeBytes,
       suffix: "",
       uploadKey,
       url: `${uploadBaseURL}/upload/${uploadKey}`,
@@ -1159,6 +1209,171 @@ class D1CompatibilityStore implements CompatibilityStore {
     return { found: true };
   }
 
+  async prepareDirectAttachmentUpload(
+    uploadKey: string,
+    scope: AttachmentUploadScope
+  ): Promise<DirectAttachmentUpload | null> {
+    const upload = await this.db
+      .prepare(
+        `SELECT r2_key, content_type, size_bytes, upload_strategy,
+                multipart_upload_id
+         FROM attachment_uploads
+         WHERE upload_key = ? AND upload_state = 'queued'
+           AND library_type = ? AND library_id = ? AND item_key = ?`
+      )
+      .bind(uploadKey, scope.libraryType, scope.libraryID, scope.itemKey)
+      .first<{
+        content_type: string | null;
+        multipart_upload_id: string | null;
+        r2_key: string;
+        size_bytes: number;
+        upload_strategy: string;
+      }>();
+    if (!(upload && this.bucket)) {
+      return null;
+    }
+
+    const strategy =
+      upload.size_bytes <= directSinglePutThresholdBytes
+        ? "single"
+        : "multipart";
+    let multipartUploadId = upload.multipart_upload_id;
+    if (strategy === "multipart" && !multipartUploadId) {
+      const multipart = await this.bucket.createMultipartUpload(upload.r2_key, {
+        httpMetadata: {
+          contentType: upload.content_type ?? "application/octet-stream",
+        },
+      });
+      multipartUploadId = multipart.uploadId;
+    }
+    await this.db
+      .prepare(
+        `UPDATE attachment_uploads
+         SET upload_strategy = ?, multipart_upload_id = ?
+         WHERE upload_key = ? AND upload_state = 'queued'`
+      )
+      .bind(strategy, multipartUploadId, uploadKey)
+      .run();
+
+    return {
+      contentType: upload.content_type ?? "application/octet-stream",
+      found: true,
+      ...(multipartUploadId ? { multipartUploadId } : {}),
+      r2Key: upload.r2_key,
+      sizeBytes: upload.size_bytes,
+      strategy,
+    };
+  }
+
+  async completeDirectAttachmentUpload(
+    uploadKey: string,
+    scope: AttachmentUploadScope,
+    parts: R2UploadedPart[]
+  ): Promise<DirectAttachmentCompletion> {
+    const upload = await this.db
+      .prepare(
+        `SELECT r2_key, size_bytes, upload_strategy, multipart_upload_id
+         FROM attachment_uploads
+         WHERE upload_key = ? AND upload_state = 'queued'
+           AND library_type = ? AND library_id = ? AND item_key = ?`
+      )
+      .bind(uploadKey, scope.libraryType, scope.libraryID, scope.itemKey)
+      .first<{
+        multipart_upload_id: string | null;
+        r2_key: string;
+        size_bytes: number;
+        upload_strategy: string;
+      }>();
+    if (!(upload && this.bucket)) {
+      return { found: false };
+    }
+
+    let object: R2Object | null;
+    if (upload.upload_strategy === "single") {
+      object = await this.bucket.head(upload.r2_key);
+    } else if (
+      upload.upload_strategy === "multipart" &&
+      upload.multipart_upload_id
+    ) {
+      const expectedPartCount = Math.ceil(
+        upload.size_bytes / directMultipartPartSize(upload.size_bytes)
+      );
+      const normalizedParts = [...parts]
+        .sort((left, right) => left.partNumber - right.partNumber)
+        .map((part) => ({
+          etag: part.etag.replace(/^"|"$/gu, ""),
+          partNumber: part.partNumber,
+        }));
+      if (
+        normalizedParts.length !== expectedPartCount ||
+        !normalizedParts.every(
+          (part, index) => part.partNumber === index + 1 && part.etag.length > 0
+        )
+      ) {
+        return { found: true, invalidParts: true };
+      }
+      object = await this.bucket
+        .resumeMultipartUpload(upload.r2_key, upload.multipart_upload_id)
+        .complete(normalizedParts);
+    } else {
+      return { found: true, invalidParts: true };
+    }
+
+    if (!object) {
+      return { found: true };
+    }
+    if (object.size !== upload.size_bytes) {
+      await this.bucket.delete(upload.r2_key);
+      return {
+        actualSize: object.size,
+        found: true,
+        sizeMismatch: true,
+      };
+    }
+    await this.db
+      .prepare(
+        `UPDATE attachment_uploads
+         SET upload_state = 'uploaded',
+             uploaded_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE upload_key = ?`
+      )
+      .bind(uploadKey)
+      .run();
+    return { actualSize: object.size, found: true };
+  }
+
+  async abortDirectAttachmentUpload(
+    uploadKey: string,
+    scope: AttachmentUploadScope
+  ): Promise<boolean> {
+    const upload = await this.db
+      .prepare(
+        `SELECT r2_key, multipart_upload_id
+         FROM attachment_uploads
+         WHERE upload_key = ? AND upload_state = 'queued'
+           AND library_type = ? AND library_id = ? AND item_key = ?`
+      )
+      .bind(uploadKey, scope.libraryType, scope.libraryID, scope.itemKey)
+      .first<{ multipart_upload_id: string | null; r2_key: string }>();
+    if (!(upload && this.bucket)) {
+      return false;
+    }
+    if (upload.multipart_upload_id) {
+      await this.bucket
+        .resumeMultipartUpload(upload.r2_key, upload.multipart_upload_id)
+        .abort();
+    }
+    await this.db
+      .prepare(
+        `DELETE FROM attachment_uploads
+         WHERE upload_key = ? AND library_type = ? AND library_id = ?
+           AND item_key = ?`
+      )
+      .bind(uploadKey, scope.libraryType, scope.libraryID, scope.itemKey)
+      .run();
+    return true;
+  }
+
   async setStorageQuota(
     userID: number,
     quotaMB: number | "unlimited" | null,
@@ -1559,6 +1774,8 @@ class D1CompatibilityStore implements CompatibilityStore {
     return {
       contentType: input.contentType ?? "application/octet-stream",
       prefix: "",
+      r2Key,
+      sizeBytes: input.sizeBytes,
       suffix: "",
       uploadKey,
       url: `${uploadBaseURL}/upload/${uploadKey}`,
@@ -1810,6 +2027,47 @@ class D1CompatibilityStore implements CompatibilityStore {
       })
     );
     const existingKeys = expandItemDeleteKeys(itemsByKey, itemKeys);
+    const placeholders = existingKeys.map(() => "?").join(",");
+    const attachmentRows = await this.db
+      .prepare(
+        `SELECT r2_key
+         FROM attachment_files
+         WHERE library_type = ? AND library_id = ?
+           AND item_key IN (${placeholders})`
+      )
+      .bind(libraryType, libraryID, ...existingKeys)
+      .all<{ r2_key: string }>();
+    const uploadRows = await this.db
+      .prepare(
+        `SELECT r2_key, multipart_upload_id, upload_state
+         FROM attachment_uploads
+         WHERE library_type = ? AND library_id = ?
+           AND item_key IN (${placeholders})`
+      )
+      .bind(libraryType, libraryID, ...existingKeys)
+      .all<{
+        multipart_upload_id: string | null;
+        r2_key: string;
+        upload_state: string;
+      }>();
+    if (this.bucket) {
+      await Promise.all(
+        uploadRows.results
+          .filter(
+            (upload) =>
+              upload.upload_state === "queued" &&
+              Boolean(upload.multipart_upload_id)
+          )
+          .map((upload) =>
+            this.bucket
+              ?.resumeMultipartUpload(
+                upload.r2_key,
+                upload.multipart_upload_id ?? ""
+              )
+              .abort()
+          )
+      );
+    }
 
     const nextVersion = version + 1;
     await this.db.batch([
@@ -1831,11 +2089,39 @@ class D1CompatibilityStore implements CompatibilityStore {
           .bind(libraryType, libraryID, itemKey),
         this.db
           .prepare(
+            "DELETE FROM attachment_uploads WHERE library_type = ? AND library_id = ? AND item_key = ?"
+          )
+          .bind(libraryType, libraryID, itemKey),
+        this.db
+          .prepare(
+            "DELETE FROM fulltext_items WHERE library_type = ? AND library_id = ? AND item_key = ?"
+          )
+          .bind(libraryType, libraryID, itemKey),
+        this.db
+          .prepare(
             "INSERT INTO sync_log (library_type, library_id, version, operation, object_type, object_key) VALUES (?, ?, ?, 'delete', 'item', ?)"
           )
           .bind(libraryType, libraryID, nextVersion, itemKey),
       ]),
     ]);
+
+    if (this.bucket) {
+      const candidateKeys = new Set([
+        ...attachmentRows.results.map((row) => row.r2_key),
+        ...uploadRows.results
+          .filter((upload) => upload.upload_state !== "queued")
+          .map((upload) => upload.r2_key),
+      ]);
+      for (const r2Key of candidateKeys) {
+        const remainingReference = await this.db
+          .prepare("SELECT 1 FROM attachment_files WHERE r2_key = ? LIMIT 1")
+          .bind(r2Key)
+          .first();
+        if (!remainingReference) {
+          await this.bucket.delete(r2Key);
+        }
+      }
+    }
 
     return {
       deleted: existingKeys,

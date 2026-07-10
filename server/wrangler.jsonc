@@ -8,13 +8,19 @@
   "compatibility_flags": ["nodejs_compat"],
   "base_dir": ".",
   "vars": {
-    "DEPLOYMENT_MODE": "production"
+    "DEPLOYMENT_MODE": "production",
+    "R2_BUCKET_NAME": "zotero-selfhost-attachments"
   },
   "observability": {
     "enabled": true
   },
   "secrets": {
-    "required": ["FILE_URL_SIGNING_SECRET"]
+    "required": [
+      "FILE_URL_SIGNING_SECRET",
+      "R2_ACCESS_KEY_ID",
+      "R2_ACCOUNT_ID",
+      "R2_SECRET_ACCESS_KEY"
+    ]
   },
   "d1_databases": [
     {

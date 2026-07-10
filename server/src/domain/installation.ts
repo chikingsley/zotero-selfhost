@@ -72,6 +72,11 @@ class D1InstallationStore implements InstallationStore {
         this.db.prepare(
           "INSERT OR IGNORE INTO libraries (library_type, library_id) VALUES ('user', 1)"
         ),
+        this.db.prepare(
+          `INSERT OR IGNORE INTO storage_accounts
+             (user_id, quota_mb, unlimited, expiration)
+           VALUES (1, NULL, 1, 0)`
+        ),
       ]);
     } catch (error) {
       if (await this.getState()) {

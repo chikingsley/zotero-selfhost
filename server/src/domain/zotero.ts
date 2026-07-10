@@ -12,7 +12,10 @@ export const generateZoteroKey = (): string => randomString(keyChars, 8);
 const sanitizeValue = (value: unknown): unknown => {
   if (typeof value === "string") {
     return Array.from(value)
-      .filter((character) => character.charCodeAt(0) >= 32)
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code >= 32 || code === 9 || code === 10 || code === 13;
+      })
       .join("");
   }
 

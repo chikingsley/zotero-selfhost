@@ -16,14 +16,13 @@ or endorsed by Zotero.
   pending, and `0 failing` against Zotero's pinned official v3 HTTP tests.
 - A disposable Zotero Desktop profile has completed metadata and attachment
   synchronization against the deployed D1/R2 implementation.
-- The current unreleased server adds final resource naming, one-time owner
+- The current server adds final resource naming, one-time owner
   bootstrap, Cloudflare-account recovery, strict compatibility-test isolation,
   Zotero-protocol WebSocket notifications, a resumable Zotero.org personal-
   library importer, backed-up Desktop profile migration/rollback, and a
   two-profile Desktop acceptance harness.
-- The current deployed custom-domain installation still uses the older
-  `zotero` / `zotero-attachments` resources. It has not yet been migrated to
-  this unreleased resource layout.
+- The production custom domain now uses the final Worker, D1, R2, and Durable
+  Object resources. The legacy stack remains intact only as a rollback target.
 
 See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for
 measured results and [`TODO.md`](TODO.md) for the remaining product work.
@@ -38,6 +37,8 @@ export ZOTERO_IMPORT_API_KEY='<zotero.org key>'
 export SELFHOST_API_KEY='<self-host owner key>'
 
 npx zotero-selfhost-server import --url https://your-worker.example.com
+npx zotero-selfhost-server import --url https://your-worker.example.com \
+  --recovery-manifest ~/.config/zotero-selfhost/recovery-files.json
 npx zotero-selfhost-server import --url https://your-worker.example.com --execute
 
 # Close Zotero before the execute step
@@ -49,6 +50,21 @@ npx zotero-selfhost-server profile --url https://your-worker.example.com --execu
 explicit local directory, tarball, or Git source). The Deploy to Cloudflare
 button does not depend on npm. This package is not published yet, so from this
 checkout use `cd server && bun run cli -- <command>`.
+
+An optional version-1 recovery manifest maps unavailable attachment keys to
+reviewed local archive files. Relative paths resolve from the manifest:
+
+```json
+{
+  "version": 1,
+  "files": {
+    "ABCD2345": "/path/to/recovered-book.pdf"
+  }
+}
+```
+
+The importer hashes these files during planning and again before upload. It
+does not modify Zotero.org or the local Zotero profile.
 
 ## Install
 
@@ -71,10 +87,16 @@ bun install
 bun run cli -- setup
 ```
 
+Before setup, create an R2 **Object Read & Write** API token scoped only to the
+`zotero-selfhost-attachments` bucket. Set `CLOUDFLARE_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in the environment (or use the
+CLI's corresponding `--*-file` options). These credentials stay in Worker
+secrets and are used only to sign short-lived, object-specific upload URLs.
+
 `setup` authenticates with Wrangler, creates or reuses the final D1/R2
 resources, applies migrations, deploys the Worker and streaming Durable Object,
-generates the file-URL signing secret, and returns the first owner API key. The
-CLI does not save the API key.
+generates the file-URL signing secret, installs the R2 signing credentials, and
+returns the first owner API key. The CLI does not save the API key.
 
 For a Worker created with the Deploy to Cloudflare button:
 
@@ -104,6 +126,13 @@ username or password.
 - D1 stores users, keys, library versions, metadata, deletions, full-text state,
   groups, collections, and attachment records.
 - R2 stores attachment bytes.
+- The self-host installation owner has unlimited logical Zotero storage quota;
+  actual capacity and billing are governed by that installation's Cloudflare R2
+  account.
+- Direct-capable clients upload files below 64 MiB with one presigned R2 PUT
+  and larger files with presigned multipart PUTs. Both use the same attachment
+  authorization and registration records. Stock Zotero retains its compatible
+  form-POST transport because R2 does not support presigned HTML form POST.
 - `ZoteroStreamHub` holds live WebSocket subscriptions only. A committed
   library mutation produces `topicUpdated`; clients then use their normal HTTP
   sync path to fetch data.

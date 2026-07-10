@@ -29,6 +29,8 @@ describe("Workers runtime bindings", () => {
       "0002_d1_item_audit_and_file_metadata.sql",
       "0003_fulltext_index_state.sql",
       "0004_installation_owner_keys.sql",
+      "0005_direct_r2_uploads.sql",
+      "0006_selfhost_owner_unlimited_storage.sql",
     ]);
   });
 

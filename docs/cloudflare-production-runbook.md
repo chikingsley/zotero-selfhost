@@ -11,7 +11,8 @@ and destructive compatibility testing.
 - Durable Object class: `ZoteroStreamHub`
 - Binding: `STREAM_HUB`
 - Runtime mode: `production`
-- Required permanent secret: `FILE_URL_SIGNING_SECRET`
+- Required permanent secrets: `FILE_URL_SIGNING_SECRET`, `R2_ACCOUNT_ID`,
+  `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`
 
 Fresh installation should use the package CLI. It creates resources, applies
 migrations, deploys, bootstraps one owner, and removes the temporary bootstrap
@@ -21,14 +22,18 @@ secret:
 npx zotero-selfhost-server setup
 ```
 
-Wrangler OAuth is the default Cloudflare authentication path. A manually
-created broad Cloudflare API token is not part of normal onboarding.
+Wrangler OAuth is the default Cloudflare deployment authentication path. Before
+setup, create a separate R2 `Object Read & Write` API token scoped only to
+`zotero-selfhost-attachments`, then provide its Access Key ID and Secret Access
+Key through `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, plus the account ID
+through `CLOUDFLARE_ACCOUNT_ID`. Do not reuse a broad Cloudflare deployment
+token. Setup installs these values as Worker secrets.
 
 ## Deploy To Cloudflare Button
 
 The root README button points at the `server/` subdirectory. Cloudflare can
 provision D1, R2, and Durable Objects from the tracked Wrangler configuration
-and prompt for `FILE_URL_SIGNING_SECRET` from `.env.example`.
+and prompt for the permanent secrets from `.env.example`.
 
 After button deployment, finish local bootstrap with:
 
@@ -58,6 +63,32 @@ Production has no root username/password.
 - The Cloudflare account is therefore the ultimate recovery authority.
 - `FILE_URL_SIGNING_SECRET` signs short-lived file URLs. Rotating it invalidates
   outstanding URLs, not stored R2 objects.
+- The R2 credential signs 15-minute upload URLs for one attachment object or
+  multipart part. Rotating it invalidates outstanding upload URLs but does not
+  alter stored objects.
+
+## Attachment Upload Transport
+
+Attachment storage has one authorization record, one R2 object key, and one
+registration path. Direct-capable clients request `direct=1`:
+
+- Files below 64 MiB receive one presigned R2 `PUT`.
+- Files at or above 64 MiB receive 16 MiB multipart part URLs; each part can be retried
+  independently, and the Worker completes the R2 multipart upload.
+- The Worker verifies the completed object's exact authorized size before the
+  normal Zotero file-registration request can associate it with the item.
+
+Stock Zotero's storage protocol uploads a multipart HTML form with `POST`.
+Cloudflare R2 presigned URLs support `PUT` but not presigned form `POST`, so the
+existing Worker upload endpoint remains as a compatibility transport for stock
+clients. It converges into the same D1/R2 records rather than a second storage
+system.
+
+Cloudflare references:
+
+- <https://developers.cloudflare.com/r2/api/s3/presigned-urls/>
+- <https://developers.cloudflare.com/r2/api/workers/workers-multipart-usage/>
+- <https://developers.cloudflare.com/r2/api/tokens/>
 
 If every owner key is lost:
 
@@ -137,10 +168,17 @@ authentication. The local importer now:
 3. Refuses a non-empty target unless merge mode is explicit.
 4. Writes through Zotero API v3 routes in dependency order while preserving
    object keys.
-5. Downloads attachments to temporary files and verifies source/target MD5s.
+5. Downloads source-available attachments to temporary files and verifies
+   source/target MD5s. Attachment records whose source bytes are already
+   unavailable retain their metadata and are reported separately.
 6. Records resumable non-secret progress.
 7. Verifies keys/counts and rechecks the source library version before marking
    the import complete.
+
+For source attachment records whose Zotero.org bytes are unavailable, pass a
+reviewed version-1 `--recovery-manifest`. It maps attachment keys to local
+archive files. Planning hashes the files and reports them separately; execution
+rehashes them before upload and does not modify Zotero.org.
 
 Run the dry inventory and executable import before changing Desktop:
 

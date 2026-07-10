@@ -73,6 +73,7 @@ const importLibrary = async (options) => {
     includeFiles: options["without-files"] !== true,
     includeFulltext: options["without-fulltext"] !== true,
     merge: options.merge === true,
+    recoveryManifestPath: readOptionalOption(options, "recovery-manifest"),
     resetState: options["reset-state"] === true,
     sourceApiKey: readSecret({
       environmentName: "ZOTERO_IMPORT_API_KEY",
@@ -148,9 +149,21 @@ const setup = async (options) => {
   const workerName = readOption(options, "worker", defaultWorkerName);
   let serverURL = readOptionalURL(options.url);
   const existing = options.existing === true;
+  const r2Credentials = readR2Credentials(options);
 
-  if (!existing) {
-    const deployment = deployCloudflareStack(options, workerName);
+  if (existing) {
+    configureDirectR2UploadSecrets(
+      workerName,
+      readOption(options, "bucket", defaultBucketName),
+      r2Credentials,
+      options
+    );
+  } else {
+    const deployment = deployCloudflareStack(
+      options,
+      workerName,
+      r2Credentials
+    );
     serverURL ??= deployment.serverURL;
   }
   if (!serverURL) {
@@ -236,7 +249,7 @@ const recover = async (options) => {
   }
 };
 
-const deployCloudflareStack = (options, workerName) => {
+const deployCloudflareStack = (options, workerName, r2Credentials) => {
   const databaseName = readOption(options, "database", defaultDatabaseName);
   const bucketName = readOption(options, "bucket", defaultBucketName);
   const temporaryDirectory = mkdtempSync(
@@ -275,7 +288,13 @@ const deployCloudflareStack = (options, workerName) => {
     const fileURLSigningSecret = generateSecret();
     writeFileSync(
       secretsPath,
-      `FILE_URL_SIGNING_SECRET=${fileURLSigningSecret}\n`,
+      [
+        `FILE_URL_SIGNING_SECRET=${fileURLSigningSecret}`,
+        `R2_ACCESS_KEY_ID=${r2Credentials.accessKeyId}`,
+        `R2_ACCOUNT_ID=${r2Credentials.accountId}`,
+        `R2_SECRET_ACCESS_KEY=${r2Credentials.secretAccessKey}`,
+        "",
+      ].join("\n"),
       { mode: 0o600 }
     );
 
@@ -365,9 +384,49 @@ const createWranglerConfig = ({
   name: workerName,
   observability: { enabled: true },
   r2_buckets: [{ binding: "ATTACHMENTS", bucket_name: bucketName }],
-  secrets: { required: ["FILE_URL_SIGNING_SECRET"] },
-  vars: { DEPLOYMENT_MODE: "production" },
+  secrets: {
+    required: [
+      "FILE_URL_SIGNING_SECRET",
+      "R2_ACCESS_KEY_ID",
+      "R2_ACCOUNT_ID",
+      "R2_SECRET_ACCESS_KEY",
+    ],
+  },
+  vars: { DEPLOYMENT_MODE: "production", R2_BUCKET_NAME: bucketName },
 });
+
+const readR2Credentials = (options) => ({
+  accessKeyId: readSecret({
+    environmentName: "R2_ACCESS_KEY_ID",
+    fileOption: options["r2-access-key-id-file"],
+  }),
+  accountId: readSecret({
+    environmentName: "CLOUDFLARE_ACCOUNT_ID",
+    fileOption: options["cloudflare-account-id-file"],
+  }),
+  secretAccessKey: readSecret({
+    environmentName: "R2_SECRET_ACCESS_KEY",
+    fileOption: options["r2-secret-access-key-file"],
+  }),
+});
+
+const configureDirectR2UploadSecrets = (
+  workerName,
+  bucketName,
+  credentials,
+  options
+) => {
+  console.log("Configuring bucket-scoped direct R2 upload credentials...");
+  putSecret("R2_ACCESS_KEY_ID", credentials.accessKeyId, workerName, options);
+  putSecret("R2_ACCOUNT_ID", credentials.accountId, workerName, options);
+  putSecret("R2_BUCKET_NAME", bucketName, workerName, options);
+  putSecret(
+    "R2_SECRET_ACCESS_KEY",
+    credentials.secretAccessKey,
+    workerName,
+    options
+  );
+};
 
 const ensureCloudflareAuth = async (options) => {
   const whoami = runWrangler(["whoami"], {
@@ -656,6 +715,11 @@ Common options:
   --key-label <label>   Name for the newly created owner key
   --profile <name>      Wrangler authentication profile
   --location <hint>     D1/R2 location hint (for example: wnam)
+
+Direct R2 upload credentials:
+  Create an Object Read & Write R2 token scoped only to the attachment bucket.
+  Set CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY,
+  or pass each value through its corresponding --*-file option.
 
 Migration safety:
   Import and profile commands are dry-run by default; add --execute to write.

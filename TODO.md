@@ -34,25 +34,51 @@ Active product queue. Measured protocol results live in
   rollback with a pre-rollback safety copy.
 - [x] Add an A -> B -> A disposable Desktop harness that uses production owner
   and per-device key paths rather than destructive compatibility setup.
+- [x] Add one attachment authorization/storage path with direct R2 single PUT
+  below 64 MiB, direct R2 multipart PUT at or above 64 MiB, bounded importer
+  retries, and the stock-Zotero form-POST compatibility transport.
 
 ## Release proof still required
 
+- [x] Back up and migrate the legacy D1/R2 deployment to the final resource
+  names, verify the imported rows and attachment bytes/hashes, deploy the final
+  Worker, move the custom domain, and retain the legacy stack for rollback.
+- [x] Run disposable Zotero Desktop A -> B -> A metadata and attachment
+  convergence against both the fallback URL and production custom domain, then
+  remove the temporary items and device keys.
+- [x] Run an authenticated, non-writing inventory of the real Zotero.org
+  personal library and production target: 414 items, 10 collections, 61
+  verifiable stored files, 113 stored-file records without source bytes, 164
+  full-text records, 48 settings, and 3 disposable target items.
+- [x] Restore and verify the 4.6 GB/294-file books archive from `gmk-server`,
+  review attachment-key matches, and create a private recovery manifest for
+  108 files. The resulting dry run verifies 169 stored files and leaves 5
+  unavailable attachment records whose metadata will still be preserved.
+- [x] Explicitly accept the 5 unmatched attachment records as metadata-only or
+  provide another source for them: *Trauma and the Soul* URL file, *Défi A1*,
+  *Version Originale 2*, the Gemini/NotebookLM marketing guide, and the Fake
+  Assistant cheat sheet.
+- [x] Execute and verify the real personal-library import into the empty target
+  after the final backup and smoke-tree removal: 10 collections, 414 items,
+  169 files, 48 settings, and 164 full-text records verified against stable
+  Zotero.org source version 1394.
+- [ ] Migrate the backed-up existing Desktop profile now that the import state
+  is verified, then complete a normal full merge sync and rollback check.
 - [ ] Publish `zotero-selfhost-server` to npm and execute all four documented
   package-runner forms against the published artifact.
 - [ ] Make the repository public and validate the Deploy to Cloudflare button
   from a fresh Cloudflare account.
-- [ ] Migrate the existing `zotero` D1/R2 deployment to the final resource
-  names using backup, export/import, R2 copy, verification, and custom-domain
-  cutover. Do not treat the tracked config rename as a data migration.
 - [ ] Deploy an isolated compatibility Worker with the new auth boundary and
   rerun the complete pinned official suite.
 - [ ] Run the disposable Zotero Desktop smoke against the new compatibility
   deployment, including the new streaming URL.
-- [ ] Add a two-Desktop acceptance test: A commits, B receives `topicUpdated`,
-  B performs normal sync, and files round-trip in both directions.
+- [ ] Extend two-Desktop acceptance so A commits, B receives `topicUpdated`
+  without a manual wake-up, B performs normal sync, and files round-trip in
+  both directions.
 - [ ] Exercise Durable Object eviction/reconnect behavior and invalid/revoked
   key behavior.
-- [ ] Add D1 export/restore and R2 backup/restore acceptance exercises.
+- [ ] Add a repeatable recovery exercise that restores a current production
+  D1 export and R2 backup into disposable resources and verifies the result.
 
 ## Migration and client onboarding
 

@@ -35,14 +35,10 @@ export const readSnapshot = async (client, userID, { includeFulltext }) => {
   const searches = searchPage.objects.map(editableObject);
   const settings = normalizeSettings(settingsResult.body);
   const attachmentCandidates = items.filter(isStoredAttachmentCandidate);
-  const invalidAttachment = attachmentCandidates.find(
-    (attachment) => !isStoredAttachment(attachment)
-  );
-  if (invalidAttachment) {
-    throw new Error(
-      `Stored attachment ${invalidAttachment.key} is missing filename, mtime, or MD5 metadata and cannot be verified.`
-    );
-  }
+  const attachments = attachmentCandidates.filter(isStoredAttachment);
+  const unavailableAttachmentKeys = attachmentCandidates
+    .filter((attachment) => !isStoredAttachment(attachment))
+    .map((attachment) => attachment.key);
   let fulltextVersions = {};
   if (includeFulltext) {
     const result = await client.json(`/users/${userID}/fulltext?since=0`);
@@ -50,13 +46,14 @@ export const readSnapshot = async (client, userID, { includeFulltext }) => {
   }
 
   return {
-    attachments: attachmentCandidates,
+    attachments,
     collections,
     fulltextVersions,
     items,
     libraryVersion: [...observedVersions][0] ?? 0,
     searches,
     settings,
+    unavailableAttachmentKeys,
   };
 };
 
@@ -187,6 +184,12 @@ const editableObject = (envelope) => {
   editable.key = key;
   delete editable.version;
   if (editable.itemType === "attachment") {
+    if (editable.md5 === null) {
+      delete editable.md5;
+    }
+    if (editable.mtime === null) {
+      delete editable.mtime;
+    }
     if (typeof editable.md5 === "string") {
       editable.md5 = editable.md5.toLowerCase();
     }
