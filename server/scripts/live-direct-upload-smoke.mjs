@@ -6,11 +6,11 @@ import { ZoteroAPIClient } from "../cli/lib/http.mjs";
 
 const apiKey = process.env.SELFHOST_API_KEY_FILE
   ? readFileSync(process.env.SELFHOST_API_KEY_FILE, "utf8").trim()
-  : process.env.SELFHOST_TEST_API_KEY?.trim();
+  : process.env.SELFHOST_API_KEY?.trim();
 const baseURL =
   process.env.SELFHOST_URL?.trim() ?? "https://zotero.peacockery.studio";
 if (!apiKey) {
-  throw new Error("SELFHOST_API_KEY_FILE or SELFHOST_TEST_API_KEY is required");
+  throw new Error("SELFHOST_API_KEY_FILE or SELFHOST_API_KEY is required");
 }
 
 const client = new ZoteroAPIClient({ apiKey, baseURL });

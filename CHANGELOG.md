@@ -26,6 +26,7 @@
 - Fixed Node 24 profile backup creation by preventing `Array.map` indexes from being passed to `path.basename` as suffix arguments.
 - Made Zotero 9 Run JavaScript automation wait for the embedded editor, assign and verify the loader through its accessibility value, and click Zotero's Run button directly instead of relying on foreground keyboard focus.
 - Backed up and migrated the real Desktop profile to the production custom domain, then completed its first full personal-library and attachment sync.
+- Standardized production smoke tooling on `SELFHOST_API_KEY`, removed the obsolete test-key variable, and consolidated the live installation to one owner key plus one Desktop device key.
 
 - Added dry-run-first, resumable Zotero.org personal-library import with object key preservation, personal user-URI rewriting, source stability checks, and attachment MD5 verification.
 - Added verified-import-gated Zotero Desktop profile backup, migration, first full merge sync, and explicit rollback with a pre-rollback safety copy.
