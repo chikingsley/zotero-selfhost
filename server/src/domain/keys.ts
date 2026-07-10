@@ -70,8 +70,13 @@ export interface KeyStore {
   ) => Promise<KeyInfo | null>;
 }
 
+type KeyDatabase = Pick<D1Database, "prepare">;
+
 export const createKeyStore = (env: Bindings): KeyStore =>
   new D1KeyStore(env.DB);
+
+export const createPrimaryKeyStore = (env: Bindings): KeyStore =>
+  new D1KeyStore(env.DB.withSession("first-primary"));
 
 export const publicKeyInfo = (key: KeyInfo): KeyInfo => ({
   access: key.access,
@@ -169,7 +174,7 @@ export const keyAllowsGroupPermission = (
 };
 
 class D1KeyStore implements KeyStore {
-  constructor(private readonly db: D1Database) {}
+  constructor(private readonly db: KeyDatabase) {}
 
   async cancelSession(
     sessionToken: string

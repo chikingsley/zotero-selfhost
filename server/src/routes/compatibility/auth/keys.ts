@@ -5,6 +5,7 @@ import {
 } from "../../../domain/auth";
 import {
   createKeyStore,
+  createPrimaryKeyStore,
   managedKeyInfo,
   publicKeyInfo,
 } from "../../../domain/keys";
@@ -57,7 +58,7 @@ compatibility.get("/users/:userID/keys/current", async (c) => {
 
 compatibility.post("/keys/sessions", async (c) => {
   const body = await readKeyRequestBody(c);
-  const result = await createKeyStore(c.env).createSession({
+  const result = await createPrimaryKeyStore(c.env).createSession({
     currentApiKey: getRequestApiKey(c),
     loginBaseURL: getLoginBaseURL(c),
     userAgent: c.req.header("User-Agent"),
@@ -68,7 +69,7 @@ compatibility.post("/keys/sessions", async (c) => {
 });
 
 compatibility.get("/keys/sessions/:sessionToken", async (c) => {
-  const status = await createKeyStore(c.env).getSessionStatus(
+  const status = await createPrimaryKeyStore(c.env).getSessionStatus(
     c.req.param("sessionToken")
   );
   if (!status) {
@@ -79,7 +80,7 @@ compatibility.get("/keys/sessions/:sessionToken", async (c) => {
 });
 
 compatibility.delete("/keys/sessions/:sessionToken", async (c) => {
-  const result = await createKeyStore(c.env).cancelSession(
+  const result = await createPrimaryKeyStore(c.env).cancelSession(
     c.req.param("sessionToken")
   );
   if (result === "missing") {
@@ -98,7 +99,7 @@ compatibility.get("/keys/sessions/:sessionToken/info", async (c) => {
     return adminError;
   }
 
-  const info = await createKeyStore(c.env).getSessionInfo(
+  const info = await createPrimaryKeyStore(c.env).getSessionInfo(
     c.req.param("sessionToken")
   );
   if (!info) {
@@ -114,7 +115,7 @@ compatibility.post("/keys/sessions/complete", async (c) => {
     return adminError;
   }
 
-  const result = await createKeyStore(c.env).completeSession(
+  const result = await createPrimaryKeyStore(c.env).completeSession(
     await readKeyRequestBody(c)
   );
   if (result === "invalid") {

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../bindings";
 import { getBearerToken, verifySecret } from "../domain/auth";
 import { createInstallationStore } from "../domain/installation";
-import { createKeyStore, managedKeyInfo } from "../domain/keys";
+import { createPrimaryKeyStore, managedKeyInfo } from "../domain/keys";
 import { getInstallationStreamHub } from "../domain/streaming";
 
 export const selfhost = new Hono<{ Bindings: Bindings }>();
@@ -19,7 +19,7 @@ selfhost.get("/stream", (c) =>
 selfhost.get("/login", async (c) => {
   const sessionToken = readSessionToken(c.req.query("session"));
   const status = sessionToken
-    ? await createKeyStore(c.env).getSessionStatus(sessionToken)
+    ? await createPrimaryKeyStore(c.env).getSessionStatus(sessionToken)
     : null;
   if (!(sessionToken && status?.status === "pending")) {
     return loginPage(c, {
@@ -47,7 +47,7 @@ selfhost.post("/login", async (c) => {
     return loginPage(c, { message: "Invalid login request.", status: 400 });
   }
 
-  const keyStore = createKeyStore(c.env);
+  const keyStore = createPrimaryKeyStore(c.env);
   const owner = await keyStore.getKey(ownerApiKey);
   if (!owner?.isOwner) {
     return loginPage(c, {
