@@ -85,29 +85,25 @@ Only that mode allows `/test/setup`, test full-text state, legacy password key
 creation, and destructive reset behavior. Production returns `404` for test
 administration.
 
-## Existing Legacy Deployment
+## Production Cutover And Legacy Rollback
 
-The currently measured custom-domain deployment predates the final naming:
+The controlled production cutover completed on 2026-07-10. The active stack is:
 
-- Worker `zotero`
-- D1 `zotero`
-- R2 `zotero-attachments`
+- Worker `zotero-selfhost`
+- D1 `zotero-selfhost-db`
+- R2 `zotero-selfhost-attachments`
 - Custom domain `zotero.peacockery.studio`
+- Fallback URL `zotero-selfhost.cheez2012.workers.dev`
 
-Changing tracked names does not move its data. D1 and R2 resource names are not
-an in-place application-level rename. Use a controlled cutover:
+The legacy Worker `zotero`, D1 database `zotero`, and R2 bucket
+`zotero-attachments` remain intact without the custom-domain association. They
+are rollback resources and must not be deleted during the observation window.
 
-1. Export/backup legacy D1 and inventory R2.
-2. Create the final D1/R2 resources without touching the legacy Worker.
-3. Apply current migrations to the final D1.
-4. Import legacy D1 data and copy every R2 object.
-5. Verify row counts, library versions, object counts, and attachment hashes.
-6. Deploy `zotero-selfhost` with the final bindings.
-7. Run HTTP oracle, recovery, attachment, streaming, and two-device smoke tests.
-8. Move the custom domain only after all checks pass.
-9. Retain legacy resources for a defined rollback window.
-
-Do not run a fresh empty final Worker behind the existing custom domain.
+Cutover verification included a portable D1 export and SQLite integrity check,
+R2 byte count/MD5/ZIP verification, the full repository gate, and disposable
+two-profile Zotero Desktop A-to-B-to-A convergence through both the fallback URL
+and the production custom domain. Acceptance items and temporary device keys
+were removed after each run.
 
 ## Backup And Restore
 
@@ -164,14 +160,10 @@ silently deleted or claimed as migrated.
 
 ## Custom Domain Cutover
 
-The custom domain is the stable client URL, not a separate database. “Move the
-custom domain” means changing Cloudflare's Custom Domain association so the
-same hostname invokes the final `zotero-selfhost` Worker instead of the legacy
-`zotero` Worker. Cloudflare treats a Worker Custom Domain as the origin for
-that hostname.
+The custom domain is the stable client URL, not a separate database. It now
+invokes the final `zotero-selfhost` Worker. Cloudflare treats a Worker Custom
+Domain as the origin for that hostname.
 
-Do this only after the final D1/R2 resources contain verified data and the
-isolated Worker passes recovery, import, attachment, streaming, and two-profile
-tests. Moving it earlier would keep the friendly URL but point every client at
-an empty or incomplete authority. The legacy Worker/resources remain the
-rollback target during the defined observation window.
+For rollback, reassign `zotero.peacockery.studio` to the legacy `zotero` Worker;
+do not delete or modify the final D1/R2 resources during that operation. Keep
+the legacy Worker/resources until the observation window is explicitly closed.
