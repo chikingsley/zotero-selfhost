@@ -2,6 +2,8 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "zotero-selfhost",
   "main": "src/index.ts",
+  "preview_urls": false,
+  "workers_dev": true,
   "compatibility_date": "2026-07-09",
   "compatibility_flags": ["nodejs_compat"],
   "base_dir": ".",
