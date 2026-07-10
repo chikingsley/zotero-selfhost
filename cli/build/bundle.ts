@@ -1,11 +1,12 @@
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-const packageRoot = join(import.meta.dirname, "..");
+const packageRoot = join(import.meta.dirname, "..", "..");
+const generatedRoot = join(packageRoot, "dist");
 const outputDirectory = join(packageRoot, "dist", "cli");
 const outputFile = join(outputDirectory, "zotero-selfhost.mjs");
 
-await rm(outputDirectory, { force: true, recursive: true });
+await rm(generatedRoot, { force: true, recursive: true });
 
 if (process.argv.includes("--clean")) {
   process.exit(0);
@@ -13,7 +14,7 @@ if (process.argv.includes("--clean")) {
 
 await mkdir(outputDirectory, { recursive: true });
 const result = await Bun.build({
-  entrypoints: [join(packageRoot, "cli", "src", "zotero-selfhost.ts")],
+  entrypoints: [join(packageRoot, "cli", "src", "index.ts")],
   format: "esm",
   minify: false,
   naming: "zotero-selfhost.mjs",

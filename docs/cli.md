@@ -1,6 +1,10 @@
 # CLI And Operator Commands
 
-The repository root is the Cloudflare Worker and npm package. Authored CLI code lives under `cli/src`, its tests live beside it under `cli/tests`, packaging internals live under `build`, deployed-system probes live under `tests/live`, and operator-only recovery utilities live under `tools/recovery`.
+The repository root is the Cloudflare Worker and npm package. The complete CLI
+lives under `cli/`: user-facing command implementations are in
+`cli/src/commands`, private supporting code is in `cli/src/internal`, CLI tests
+are in `cli/tests`, and npm bundling code is in `cli/build`. Deployed-system
+probes remain under `tests/live` because they test the complete running product.
 
 ## Resource Defaults
 
@@ -161,23 +165,37 @@ bun run deploy:dry-run
 
 ### Recovery drill
 
-The recovery utilities are maintainer tools, not commands in the published end-user CLI. They require explicit Cloudflare credentials and resource names. Maintainers can restore a D1 SQL export into a newly created, empty disposable database without writing to production. The fallback restore uses parameterized D1 queries, so it does not depend on Cloudflare's temporary bulk-import upload host:
+Administrative recovery is part of the CLI source under the explicit `admin`
+command group and will enter the published package in the next release. It
+requires `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN` plus explicit resource names. D1 restore also requires
+the `sqlite3` command on `PATH`. The D1 command restores a
+SQL export into a newly created, empty disposable database and verifies every
+table and row count. It uses parameterized D1 queries, so it does not depend on
+Cloudflare's temporary bulk-import upload host:
 
 ```sh
-bun run restore:d1 <disposable-database-id> /path/to/database.sql
+bun run cli -- admin restore-d1 \
+  --database-id <disposable-database-id> \
+  --input /path/to/database.sql
 ```
 
 R2 backup and restore copies stay inside Cloudflare and verify every key and byte size. Single-part objects also retain and verify their content ETag; multipart ETags are transfer identifiers and are not expected to remain stable after a server-side copy:
 
 ```sh
-bun run copy:r2 zotero-selfhost-attachments <backup-bucket>
-bun run copy:r2 <backup-bucket> <disposable-restore-bucket>
+bun run cli -- admin copy-r2 \
+  --source-bucket zotero-selfhost-attachments \
+  --destination-bucket <backup-bucket>
+bun run cli -- admin copy-r2 \
+  --source-bucket <backup-bucket> \
+  --destination-bucket <disposable-restore-bucket>
 ```
 
 After verification, the cleanup command deliberately refuses to empty any bucket whose name does not contain `-restore-drill-`:
 
 ```sh
-bun run empty:r2-drill <disposable-restore-bucket>
+bun run cli -- admin empty-r2-drill \
+  --bucket <disposable-restore-bucket>
 bunx wrangler r2 bucket delete <disposable-restore-bucket>
 bunx wrangler d1 delete <disposable-database-name> --skip-confirmation
 ```

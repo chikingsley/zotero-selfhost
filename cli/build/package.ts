@@ -8,7 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const packageRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const manifestPath = join(packageRoot, "package.json");
 const backupPath = join(packageRoot, ".package.json.prepack");
 const bundledTestPath = join(

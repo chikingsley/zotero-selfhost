@@ -77,7 +77,8 @@ export const parseJSONVersionProperty = (
 // Implements Zotero's version-precondition contract for batch writes:
 // library-level `If-Unmodified-Since-Version`, per-object `version` property
 // semantics (0 = must-not-exist, matching = update, stale = 412), and the
-// unchanged/failed buckets. See references/dataserver .../version.test.js.
+// unchanged/failed buckets. See the pinned dataserver version.test.js under
+// compatibility/vendor/.
 export const evaluateBatchWritePreconditions = (
   objects: Record<string, unknown>[],
   existing: ExistingObjectVersions,

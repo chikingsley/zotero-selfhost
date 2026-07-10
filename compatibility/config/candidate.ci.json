@@ -1,0 +1,10 @@
+{
+  "apiURLPrefix": "http://127.0.0.1:8787/",
+  "fullTextStateAPI": true,
+  "libraryID": 0,
+  "rootPassword": "ci-compatibility-admin-token",
+  "rootUsername": "compatibility",
+  "userID": 1,
+  "userID2": 2,
+  "verbose": 0
+}

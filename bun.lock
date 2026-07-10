@@ -25,7 +25,7 @@
     },
   },
   "patchedDependencies": {
-    "bsdiff-wasm@0.1.4": "patches/bsdiff-wasm@0.1.4.patch",
+    "bsdiff-wasm@0.1.4": "src/vendor/bsdiff-wasm/cloudflare-worker.patch",
   },
   "packages": {
     "@asteasolutions/zod-to-openapi": ["@asteasolutions/zod-to-openapi@8.5.0", "", { "dependencies": { "openapi3-ts": "^4.1.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-SABbKiObg5dLRiTFnqiW1WWwGcg1BJfmHtT2asIBnBHg6Smy/Ms2KHc650+JI4Hw7lSkdiNebEGXpwoxfben8Q=="],

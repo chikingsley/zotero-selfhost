@@ -34,7 +34,6 @@
   "files": [
     "dist/cli",
     "migrations",
-    "patches",
     "src",
     "biome.jsonc",
     "tsconfig.json",
@@ -45,9 +44,9 @@
     "access": "public"
   },
   "scripts": {
-    "build:cli": "bun build/cli.ts",
-    "clean:cli": "bun build/cli.ts --clean",
-    "cli": "bun cli/src/zotero-selfhost.ts",
+    "build:cli": "bun cli/build/bundle.ts",
+    "clean:cli": "bun cli/build/bundle.ts --clean",
+    "cli": "bun cli/src/index.ts",
     "dev": "bun run db:migrations:apply:local && wrangler dev",
     "dev:compatibility": "mkdir -p .wrangler/compatibility && CI=1 wrangler d1 migrations apply DB --local --cwd .wrangler/compatibility --config ../../wrangler.compatibility.jsonc && wrangler dev --cwd .wrangler/compatibility --config ../../wrangler.compatibility.jsonc",
     "deploy": "bun run db:migrations:apply && wrangler deploy",
@@ -62,18 +61,16 @@
     "cf:whoami": "wrangler whoami",
     "compat:setup": "bun compatibility/oracle.ts setup",
     "compat:status": "bun compatibility/oracle.ts status",
+    "compat:check-upstream": "bun compatibility/oracle.ts check-upstream",
     "compat:update": "bun compatibility/oracle.ts update",
     "smoke:desktop": "bun tests/live/desktop-smoke.ts",
     "smoke:direct-upload": "bun tests/live/direct-upload-smoke.ts",
-    "restore:d1": "bun tools/recovery/restore-d1.ts",
-    "copy:r2": "bun tools/recovery/copy-r2.ts",
-    "empty:r2-drill": "bun tools/recovery/copy-r2.ts --empty",
-    "prepack": "bun run build:cli && bun build/package.ts prepack",
-    "postpack": "bun build/package.ts postpack && bun run clean:cli",
+    "prepack": "bun run build:cli && bun cli/build/package.ts prepack",
+    "postpack": "bun cli/build/package.ts postpack && bun run clean:cli",
     "typecheck": "bun run cf:types && tsc --noEmit",
-    "typecheck:cli": "tsc --ignoreConfig --noEmit --strict --noImplicitAny false --noUncheckedIndexedAccess false --target ESNext --module Preserve --moduleResolution bundler --allowImportingTsExtensions --types bun,node cli/src/*.ts cli/src/**/*.ts cli/tests/*.ts",
+    "typecheck:cli": "tsc --ignoreConfig --noEmit --strict --noImplicitAny false --noUncheckedIndexedAccess false --target ESNext --module Preserve --moduleResolution bundler --allowImportingTsExtensions --types bun,node cli/build/*.ts cli/src/*.ts cli/src/**/*.ts cli/tests/*.ts",
     "typecheck:compat": "tsc --ignoreConfig --noEmit --strict --target ESNext --module Preserve --moduleResolution bundler --types bun,node compatibility/oracle.ts compatibility/run-zotero-tests.ts",
-    "typecheck:tools": "tsc --ignoreConfig --noEmit --strict --noImplicitAny false --noUncheckedIndexedAccess false --target ESNext --module Preserve --moduleResolution bundler --allowImportingTsExtensions --types bun,node build/*.ts tools/recovery/*.ts tests/live/*.ts",
+    "typecheck:live": "tsc --ignoreConfig --noEmit --strict --noImplicitAny false --noUncheckedIndexedAccess false --target ESNext --module Preserve --moduleResolution bundler --allowImportingTsExtensions --types bun,node tests/live/*.ts",
     "test": "bun run test:runtime",
     "test:runtime": "FILE_URL_SIGNING_SECRET=runtime-file-url-signing-secret R2_ACCESS_KEY_ID=runtime-r2-access-key-id R2_ACCOUNT_ID=0123456789abcdef0123456789abcdef R2_SECRET_ACCESS_KEY=runtime-r2-secret-access-key vitest run --maxWorkers=1",
     "test:oracle:smoke": "bun compatibility/run-zotero-tests.ts --target candidate -- -v 3 general,version",
@@ -81,7 +78,7 @@
     "test:package": "bun run build:cli && node dist/cli/zotero-selfhost.mjs --help && npm pack --dry-run --json >/dev/null",
     "test:cli": "node --test cli/tests/*.test.ts",
     "test:watch": "FILE_URL_SIGNING_SECRET=runtime-file-url-signing-secret R2_ACCESS_KEY_ID=runtime-r2-access-key-id R2_ACCOUNT_ID=0123456789abcdef0123456789abcdef R2_SECRET_ACCESS_KEY=runtime-r2-secret-access-key vitest",
-    "check": "ultracite check && biome check --config-path biome.jsonc compatibility/oracle.ts compatibility/run-zotero-tests.ts compatibility/fulltext-state-adapter.mjs compatibility/fulltext-state-loader.mjs compatibility/fulltext-state-register.mjs && bun run typecheck && bun run typecheck:cli && bun run typecheck:compat && bun run typecheck:tools && bun run test:runtime && bun run test:cli && bun run test:package",
+    "check": "ultracite check && biome check --config-path biome.jsonc compatibility/oracle.ts compatibility/run-zotero-tests.ts compatibility/fulltext-state-adapter.mjs compatibility/fulltext-state-loader.mjs compatibility/fulltext-state-register.mjs && bun run typecheck && bun run typecheck:cli && bun run typecheck:compat && bun run typecheck:live && bun run test:runtime && bun run test:cli && bun run test:package",
     "fix": "ultracite fix"
   },
   "dependencies": {
@@ -116,6 +113,6 @@
     }
   },
   "patchedDependencies": {
-    "bsdiff-wasm@0.1.4": "patches/bsdiff-wasm@0.1.4.patch"
+    "bsdiff-wasm@0.1.4": "src/vendor/bsdiff-wasm/cloudflare-worker.patch"
   }
 }

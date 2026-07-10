@@ -105,7 +105,7 @@ Historical scores from the removed in-memory path follow. This path is no
 longer executable or part of the fast regression gate.
 
 Scores from running Zotero's official remote test suite
-(`references/dataserver/tests/remote/tests/3`) against the candidate server in
+(`compatibility/vendor/dataserver/tests/remote/tests/3`) against the candidate server in
 in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 
 | Slice | Score | Status |
@@ -130,9 +130,9 @@ in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 # in compatibility/README.md.
 ```
 
-The harness needs a local-only `references/dataserver/tests/remote` clone and
+The harness needs a local-only `compatibility/vendor/dataserver/tests/remote` clone and
 the current Zotero schema at
-`references/dataserver/htdocs/zotero-schema/schema.json`. See
+`compatibility/vendor/dataserver/htdocs/zotero-schema/schema.json`. See
 `compatibility/README.md` for the refresh command.
 
 ## Local Workers runtime safety net

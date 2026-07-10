@@ -1,0 +1,48 @@
+name: Compatibility oracle
+
+on:
+  schedule:
+    - cron: "17 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Materialize pinned Zotero oracle
+        run: bun run compat:setup
+      - name: Run pinned official smoke
+        env:
+          COMPATIBILITY_TEST_ADMIN_TOKEN: ci-compatibility-admin-token
+          COMPATIBILITY_TEST_API_KEY: ci-compatibility-api-key
+          FILE_URL_SIGNING_SECRET: ci-compatibility-signing-secret
+        run: |
+          log_path="$RUNNER_TEMP/compatibility-worker.log"
+          bun run dev:compatibility >"$log_path" 2>&1 &
+          worker_pid=$!
+          trap 'kill "$worker_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8787/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat "$log_path"
+              exit 1
+            fi
+            sleep 1
+          done
+          bun compatibility/run-zotero-tests.ts \
+            --target candidate \
+            --config compatibility/config/candidate.ci.json \
+            -- -v 3 general,version
+      - name: Require the upstream pin to be current
+        run: bun run compat:check-upstream

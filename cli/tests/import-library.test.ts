@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { runImport } from "../src/lib/importer.ts";
+import { runImport } from "../src/commands/import-library.ts";
 
 const attachmentBytes = Buffer.from("zotero-selfhost importer attachment\n");
 const attachmentMd5 = createHash("md5").update(attachmentBytes).digest("hex");

@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { requireRecord, ZoteroAPIClient } from "../../cli/src/lib/http.ts";
+import { requireRecord, ZoteroAPIClient } from "../../cli/src/internal/http.ts";
 
 const apiKey = process.env.SELFHOST_API_KEY_FILE
   ? readFileSync(process.env.SELFHOST_API_KEY_FILE, "utf8").trim()

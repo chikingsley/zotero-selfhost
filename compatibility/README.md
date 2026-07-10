@@ -6,21 +6,22 @@ This folder tracks how we turn Zotero's official API behavior into a buildable c
 
 Primary oracle, materialized locally when needed:
 
-- `../references/dataserver/tests/remote`
+- `vendor/dataserver/tests/remote`
 - `oracle.lock.json` pins the exact upstream commit and public schema digest.
 
 Important files:
 
-- `../references/dataserver/tests/remote/run_tests`
-- `../references/dataserver/tests/remote/config/default.json`
-- `../references/dataserver/tests/remote/setup.js`
-- `../references/dataserver/tests/remote/api3.js`
-- `../references/dataserver/tests/remote/tests/3`
+- `vendor/dataserver/tests/remote/run_tests`
+- `vendor/dataserver/tests/remote/config/default.json`
+- `vendor/dataserver/tests/remote/setup.js`
+- `vendor/dataserver/tests/remote/api3.js`
+- `vendor/dataserver/tests/remote/tests/3`
 
 The remote tests are HTTP-level tests. That makes them reusable: first against official `dataserver`, later against our candidate server.
 
-`references/` is intentionally not committed. It is generated maintenance
-input, not product source. Bootstrap the exact tracked oracle from the repository root:
+`compatibility/vendor/` is intentionally ignored. It contains the reproducible
+local checkout used only by this harness, not product source. Bootstrap the
+exact tracked oracle from the repository root:
 
 ```bash
 bun run compat:setup
@@ -31,6 +32,13 @@ bun run compat:status
 against Zotero's upstream package lock, and installs only the schema matching
 the tracked SHA-256. `compat:status` compares the pin, checkout, schema,
 dependencies, and current upstream ref without changing them.
+
+The scheduled `Compatibility oracle` workflow materializes the pin weekly,
+runs the official `general,version` smoke against an isolated local Worker, and
+then runs `compat:check-upstream`. It fails visibly when either the pinned smoke
+regresses or Zotero advances, but never updates the lock automatically.
+Advancing the pin remains a reviewed change followed by the official smoke and
+full suites.
 
 The current upstream test lock reports npm advisories in its test-only XML,
 Mocha, and transitive tooling dependencies. Those packages remain confined to
@@ -135,6 +143,10 @@ Create them from the corresponding `.example.json` files. Local config files
 are ignored because they can contain test credentials or local endpoints. The
 runner refuses to start if the checkout commit, dependencies, or schema differ
 from `oracle.lock.json`.
+
+`compatibility/config/candidate.ci.json` is the tracked configuration for the
+scheduled local smoke. It contains only disposable localhost test values; it
+does not contain deployment credentials.
 
 The candidate config's upstream-owned `rootUsername`/`rootPassword` fields map
 to Basic username `compatibility` and `COMPATIBILITY_TEST_ADMIN_TOKEN`. They do

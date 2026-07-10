@@ -21,7 +21,7 @@ interface CommandResult {
 
 const repoRoot = resolve(import.meta.dir, "..");
 const lockPath = join(import.meta.dir, "oracle.lock.json");
-const checkoutPath = join(repoRoot, "references/dataserver");
+const checkoutPath = join(import.meta.dir, "vendor/dataserver");
 const remoteTestsPath = join(checkoutPath, "tests/remote");
 const schemaPath = join(checkoutPath, "htdocs/zotero-schema/schema.json");
 
@@ -206,6 +206,16 @@ const status = async (lock: OracleLock): Promise<void> => {
   console.log(`Update available: ${latest !== lock.commit}`);
 };
 
+const checkUpstream = async (lock: OracleLock): Promise<void> => {
+  const latest = await remoteHead(lock);
+  if (latest !== lock.commit) {
+    throw new Error(
+      `Zotero's ${lock.ref} advanced from ${lock.commit} to ${latest}. Run 'bun run compat:update', review the lock change, and pass the official suite before committing the new pin.`
+    );
+  }
+  console.log(`Zotero oracle pin is current at ${lock.commit}.`);
+};
+
 const update = async (lock: OracleLock): Promise<void> => {
   const [latest, schema] = await Promise.all([
     remoteHead(lock),
@@ -233,6 +243,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "status") {
     await status(lock);
+    return;
+  }
+  if (command === "check-upstream") {
+    await checkUpstream(lock);
     return;
   }
   if (command === "update") {

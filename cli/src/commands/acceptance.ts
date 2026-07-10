@@ -1,13 +1,17 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.ts";
+import {
+  normalizeOrigin,
+  requireRecord,
+  ZoteroAPIClient,
+} from "../internal/http.ts";
 import {
   assertZoteroStopped,
   defaultZoteroApp,
   runZoteroScript,
   writeDisposableProfile,
-} from "./zotero-desktop.ts";
+} from "../internal/zotero-desktop.ts";
 
 export const runTwoProfileAcceptance = async ({
   execute = false,

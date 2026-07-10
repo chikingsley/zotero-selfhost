@@ -21,11 +21,14 @@ interface OracleLock {
 }
 
 const repoRoot = resolve(import.meta.dir, "..");
-const remoteTestsDir = join(repoRoot, "references/dataserver/tests/remote");
+const remoteTestsDir = join(
+  repoRoot,
+  "compatibility/vendor/dataserver/tests/remote"
+);
 const oracleLockPath = join(repoRoot, "compatibility/oracle.lock.json");
 const schemaPath = join(
   repoRoot,
-  "references/dataserver/htdocs/zotero-schema/schema.json"
+  "compatibility/vendor/dataserver/htdocs/zotero-schema/schema.json"
 );
 const fullTextStateRegisterPath = join(
   repoRoot,

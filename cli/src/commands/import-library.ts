@@ -4,7 +4,7 @@ import {
   parsePossibleJSON,
   requireRecord,
   ZoteroAPIClient,
-} from "./http.ts";
+} from "../internal/http.ts";
 import {
   headerVersion,
   inventoryObjectCount,
@@ -13,20 +13,23 @@ import {
   readInventory,
   readSnapshot,
   remapSnapshotUserIdentity,
-} from "./importer-data.ts";
+} from "../internal/importer-data.ts";
 import {
   applyRecoveryManifest,
   cleanMd5,
   importFiles,
-} from "./importer-files.ts";
+} from "../internal/importer-files.ts";
 import {
   defaultImportStatePath,
   loadOrCreateImportState,
   resetImportState,
   saveImportState,
-} from "./importer-state.ts";
+} from "../internal/importer-state.ts";
 
-export { defaultImportStatePath, readImportState } from "./importer-state.ts";
+export {
+  defaultImportStatePath,
+  readImportState,
+} from "../internal/importer-state.ts";
 
 interface ImportOptions {
   execute?: boolean;

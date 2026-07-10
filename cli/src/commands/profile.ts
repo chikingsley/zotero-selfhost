@@ -14,13 +14,17 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { normalizeOrigin, requireRecord, ZoteroAPIClient } from "./http.ts";
-import { defaultImportStatePath, readImportState } from "./importer.ts";
+import {
+  normalizeOrigin,
+  requireRecord,
+  ZoteroAPIClient,
+} from "../internal/http.ts";
 import {
   assertZoteroStopped,
   defaultZoteroApp,
   runZoteroScript,
-} from "./zotero-desktop.ts";
+} from "../internal/zotero-desktop.ts";
+import { defaultImportStatePath, readImportState } from "./import-library.ts";
 
 interface DeviceKey {
   key: string;
