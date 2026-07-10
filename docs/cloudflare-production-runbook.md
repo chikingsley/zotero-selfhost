@@ -134,6 +134,44 @@ hashes after restore.
 ## Zotero.org Import
 
 A Zotero.org API key is a one-time source credential, not self-host server
-authentication. The importer is still pending. Its release gate is metadata
-count reconciliation plus attachment size/hash verification before the local
-Desktop profile is switched to the self-hosted authority.
+authentication. The local importer now:
+
+1. Authenticates both source and target without persisting either key.
+2. Inventories the personal library, including trash and full text.
+3. Refuses a non-empty target unless merge mode is explicit.
+4. Writes through Zotero API v3 routes in dependency order while preserving
+   object keys.
+5. Downloads attachments to temporary files and verifies source/target MD5s.
+6. Records resumable non-secret progress.
+7. Verifies keys/counts and rechecks the source library version before marking
+   the import complete.
+
+Run the dry inventory and executable import before changing Desktop:
+
+```bash
+ZOTERO_IMPORT_API_KEY='...' SELFHOST_API_KEY='...' \
+  npx zotero-selfhost-server import --url https://your-worker.example.com
+
+ZOTERO_IMPORT_API_KEY='...' SELFHOST_API_KEY='...' \
+  npx zotero-selfhost-server import --url https://your-worker.example.com --execute
+```
+
+The first profile cutover requires that verified state. It makes a local
+backup, updates the personal-library API/key/stream authority through Zotero
+itself, marks only that library for a full merge sync, and verifies the result.
+Group libraries are preserved locally and skipped in this slice; they are not
+silently deleted or claimed as migrated.
+
+## Custom Domain Cutover
+
+The custom domain is the stable client URL, not a separate database. “Move the
+custom domain” means changing Cloudflare's Custom Domain association so the
+same hostname invokes the final `zotero-selfhost` Worker instead of the legacy
+`zotero` Worker. Cloudflare treats a Worker Custom Domain as the origin for
+that hostname.
+
+Do this only after the final D1/R2 resources contain verified data and the
+isolated Worker passes recovery, import, attachment, streaming, and two-profile
+tests. Moving it earlier would keep the friendly URL but point every client at
+an empty or incomplete authority. The legacy Worker/resources remain the
+rollback target during the defined observation window.

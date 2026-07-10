@@ -26,6 +26,14 @@ Active product queue. Measured protocol results live in
   streaming subscription/delivery.
 - [x] Keep production and compatibility Wrangler resources/configuration
   separate.
+- [x] Add a dry-run-first, resumable personal-library importer for collections,
+  items/trash, saved searches, settings, stored files, and full text, including
+  source-stability, target-inventory, key, and MD5 verification.
+- [x] Add backed-up existing-profile migration with verified-import gating,
+  personal-library identity rewriting, first full merge sync, and explicit
+  rollback with a pre-rollback safety copy.
+- [x] Add an A -> B -> A disposable Desktop harness that uses production owner
+  and per-device key paths rather than destructive compatibility setup.
 
 ## Release proof still required
 
@@ -48,15 +56,14 @@ Active product queue. Measured protocol results live in
 
 ## Migration and client onboarding
 
-- [ ] Implement a one-time Zotero.org importer that consumes
+- [x] Implement a one-time Zotero.org personal-library importer that consumes
   `ZOTERO_IMPORT_API_KEY` locally, writes through supported server paths,
-  verifies object counts and attachment hashes, and never persists the import
-  key.
-- [ ] Implement safe existing-profile migration: stop/coordinate Zotero, back
-  up the profile, install API/stream URLs and a device key, reset only sync
-  history, upload, verify, and provide rollback.
-- [ ] Implement new-device connection/key creation and full-library download
-  verification.
+  verifies object keys and attachment hashes, and never persists either key.
+- [x] Implement safe existing-profile migration: require Zotero to stop, back
+  up the profile/database, install API/stream URLs and a device key, reset only
+  personal-library sync history, full-sync, verify, and provide rollback.
+- [x] Implement new-device key creation and A -> B -> A personal-library/file
+  download verification. The production deployment run remains a release gate.
 - [ ] Decide the stock-mobile strategy: upstream custom-server support, a
   maintained fork, or the future first-party app.
 

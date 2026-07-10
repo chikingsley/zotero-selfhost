@@ -41,6 +41,10 @@ not bundled or published.
 
 ## Next Product Layer
 
-The remaining critical work is importer/profile migration and multi-device
-acceptance testing. Code consolidation follows those safety nets so splitting
-the large compatibility modules cannot silently change Zotero behavior.
+The importer, backed-up personal-profile migration/rollback, and disposable
+A -> B -> A Desktop harness now exist locally. The remaining critical work is
+running those gates against isolated production-shaped resources, proving the
+streaming wake-up path between real clients, migrating the legacy Cloudflare
+D1/R2 data, and only then cutting over the custom domain. Code consolidation
+follows those safety nets so splitting the large compatibility modules cannot
+silently change Zotero behavior.

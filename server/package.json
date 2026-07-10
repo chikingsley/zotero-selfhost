@@ -55,8 +55,9 @@
     "test:oracle:smoke": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 general,version",
     "test:oracle": "bun ../compatibility/run-zotero-tests.ts --target candidate -- -v 3 -t 240000",
     "test:package": "node cli/zotero-selfhost.mjs --help && npm pack --dry-run --json >/dev/null",
+    "test:cli": "node --test tests-cli/*.test.mjs",
     "test:watch": "FILE_URL_SIGNING_SECRET=runtime-file-url-signing-secret vitest",
-    "check": "ultracite check && biome check --config-path biome.jsonc ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts && bun run typecheck && bun run typecheck:compat && bun run test:runtime && bun run test:package",
+    "check": "ultracite check && biome check --config-path biome.jsonc ../compatibility/oracle.ts ../compatibility/run-zotero-tests.ts && bun run typecheck && bun run typecheck:compat && bun run test:runtime && bun run test:cli && bun run test:package",
     "fix": "ultracite fix"
   },
   "dependencies": {

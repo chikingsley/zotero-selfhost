@@ -1,7 +1,7 @@
 # Zotero Self-Host Server Package
 
 This package contains the Cloudflare Worker, D1 migrations, R2 file storage,
-Zotero streaming Durable Object, runtime tests, and deployment/recovery CLI.
+Zotero streaming Durable Object, runtime tests, and deployment/migration CLI.
 
 ## Resource Defaults
 
@@ -82,12 +82,67 @@ delete users, library metadata, or R2 files.
 - `RECOVERY_TOKEN`: temporary and accepted only to create a replacement owner
   key on an initialized installation.
 - API keys: per-client credentials stored by the self-hosted server.
-- `ZOTERO_IMPORT_API_KEY`: future one-time local importer input, never a Worker
-  secret.
+- `ZOTERO_IMPORT_API_KEY`: one-time local Zotero.org source input, never a
+  Worker secret or persisted credential.
+- `SELFHOST_API_KEY`: local owner credential used by import, profile migration,
+  and acceptance commands. Prefer a password-manager environment integration
+  or `--api-key-file`; it is not stored by the CLI.
 
 There is no production root username/password. Legacy password-style `/keys`
 creation is available only in explicit compatibility-test mode because the
 pinned upstream oracle exercises it.
+
+## Import And Desktop Migration
+
+Migration is intentionally two-phase. First copy and verify the Zotero.org
+personal library while the existing Desktop profile still points to
+Zotero.org. Only then back up and switch that profile:
+
+```bash
+export ZOTERO_IMPORT_API_KEY='<dedicated Zotero.org read key>'
+export SELFHOST_API_KEY='<self-host owner key>'
+
+# Inventory only; no target writes
+npx zotero-selfhost-server import --url https://your-worker.example.com
+
+# Resumable metadata, settings, attachment, and full-text import
+npx zotero-selfhost-server import --url https://your-worker.example.com --execute
+
+# Discover the current profile and print the backup/cutover plan
+npx zotero-selfhost-server profile --url https://your-worker.example.com
+
+# With Zotero fully closed: back up, install API/key/stream settings, force a
+# full merge sync, and verify the resulting profile
+npx zotero-selfhost-server profile --url https://your-worker.example.com --execute
+```
+
+The importer preserves collection/item/search keys, rewrites personal-library
+Zotero URIs to the self-host user identity, includes trashed items, and checks
+attachment MD5s. It refuses a non-empty target unless `--merge` is explicit.
+State under `~/.config/zotero-selfhost/import-state.json` contains progress and
+hashes but no credentials, so interrupted attachment imports can resume.
+
+Profile migration requires that verified state. It copies the full
+Firefox/Zotero profile plus `zotero.sqlite*` files, changes only the personal
+library's sync authority/history, preserves attachment files, and leaves local
+group libraries in place but skipped because group migration is not part of
+this personal-library slice. Restore is explicit and also keeps a pre-rollback
+safety copy:
+
+```bash
+npx zotero-selfhost-server profile --rollback '/path/to/backup'
+npx zotero-selfhost-server profile --rollback '/path/to/backup' --execute
+```
+
+Finally, the macOS acceptance command creates two short-lived device keys and
+two disposable Zotero profiles. A uploads metadata and a file, B downloads and
+edits them, and A downloads B's change. It never invokes `/test/setup` and
+revokes the temporary keys afterward:
+
+```bash
+npx zotero-selfhost-server acceptance --url https://your-worker.example.com
+npx zotero-selfhost-server acceptance --url https://your-worker.example.com --execute
+```
 
 ## Streaming
 

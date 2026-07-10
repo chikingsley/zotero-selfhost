@@ -14,6 +14,9 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runTwoProfileAcceptance } from "./lib/acceptance.mjs";
+import { defaultImportStatePath, runImport } from "./lib/importer.mjs";
+import { runProfileMigration, runProfileRollback } from "./lib/profile.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -42,8 +45,100 @@ const main = async () => {
     await recover(options);
     return;
   }
+  if (command === "import") {
+    await importLibrary(options);
+    return;
+  }
+  if (command === "profile") {
+    await profile(options);
+    return;
+  }
+  if (command === "acceptance") {
+    await acceptance(options);
+    return;
+  }
 
   throw new Error(`Unknown command '${command}'. Run with --help for usage.`);
+};
+
+const importLibrary = async (options) => {
+  assertNodeVersion();
+  const saved = loadDeployment();
+  const targetURL = readOptionalURL(options.url ?? saved?.serverURL);
+  if (!targetURL) {
+    throw new Error("Import needs --url or a deployment saved by setup.");
+  }
+  await runImport({
+    execute: options.execute === true,
+    includeFiles: options["without-files"] !== true,
+    includeFulltext: options["without-fulltext"] !== true,
+    merge: options.merge === true,
+    resetState: options["reset-state"] === true,
+    sourceApiKey: readSecret({
+      environmentName: "ZOTERO_IMPORT_API_KEY",
+      fileOption: options["zotero-key-file"],
+    }),
+    sourceURL: readOption(options, "source-url", "https://api.zotero.org"),
+    statePath: readOption(options, "state", defaultImportStatePath()),
+    targetApiKey: readSecret({
+      environmentName: "SELFHOST_API_KEY",
+      fileOption: options["api-key-file"],
+    }),
+    targetURL,
+  });
+};
+
+const profile = async (options) => {
+  assertNodeVersion();
+  if (typeof options.rollback === "string") {
+    await runProfileRollback({
+      backupPath: options.rollback,
+      execute: options.execute === true,
+    });
+    return;
+  }
+
+  const saved = loadDeployment();
+  const targetURL = readOptionalURL(options.url ?? saved?.serverURL);
+  if (!targetURL) {
+    throw new Error(
+      "Profile migration needs --url or a deployment saved by setup."
+    );
+  }
+  await runProfileMigration({
+    backupRoot: readOptionalOption(options, "backup-root"),
+    dataDir: readOptionalOption(options, "data-dir"),
+    execute: options.execute === true,
+    importStatePath: readOption(options, "state", defaultImportStatePath()),
+    profileDir: readOptionalOption(options, "profile-dir"),
+    profilesRoot: readOptionalOption(options, "profiles-root"),
+    targetApiKey: readSecret({
+      environmentName: "SELFHOST_API_KEY",
+      fileOption: options["api-key-file"],
+    }),
+    targetURL,
+    zoteroApp: readOptionalOption(options, "zotero-app"),
+  });
+};
+
+const acceptance = async (options) => {
+  assertNodeVersion();
+  const saved = loadDeployment();
+  const targetURL = readOptionalURL(options.url ?? saved?.serverURL);
+  if (!targetURL) {
+    throw new Error("Acceptance needs --url or a deployment saved by setup.");
+  }
+  await runTwoProfileAcceptance({
+    execute: options.execute === true,
+    keep: options.keep === true,
+    ownerApiKey: readSecret({
+      environmentName: "SELFHOST_API_KEY",
+      fileOption: options["api-key-file"],
+    }),
+    targetURL,
+    temporaryRoot: readOptionalOption(options, "temporary-root"),
+    zoteroApp: readOptionalOption(options, "zotero-app"),
+  });
 };
 
 const setup = async (options) => {
@@ -386,14 +481,23 @@ const requestJSON = async (url, { body, token }) => {
 
 const parseArguments = (arguments_) => {
   const options = {};
+  const booleanOptions = new Set([
+    "execute",
+    "existing",
+    "keep",
+    "merge",
+    "reset-state",
+    "without-files",
+    "without-fulltext",
+  ]);
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     if (!argument?.startsWith("--")) {
       throw new Error(`Unexpected argument '${argument ?? ""}'`);
     }
     const key = argument.slice(2);
-    if (key === "existing") {
-      options.existing = true;
+    if (booleanOptions.has(key)) {
+      options[key] = true;
       continue;
     }
     const value = arguments_[index + 1];
@@ -409,6 +513,28 @@ const parseArguments = (arguments_) => {
 const readOption = (options, key, fallback) => {
   const value = options[key];
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
+};
+
+const readOptionalOption = (options, key) => {
+  const value = options[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+};
+
+const readSecret = ({ environmentName, fileOption }) => {
+  if (typeof fileOption === "string") {
+    const value = readFileSync(resolve(fileOption), "utf8").trim();
+    if (!value) {
+      throw new Error(`${fileOption} is empty.`);
+    }
+    return value;
+  }
+  const value = process.env[environmentName]?.trim();
+  if (!value) {
+    throw new Error(
+      `${environmentName} is required. Set it in the environment or use the corresponding --*-key-file option.`
+    );
+  }
+  return value;
 };
 
 const optionalFlag = (options, name) => {
@@ -495,7 +621,7 @@ const isRecord = (value) =>
 const printHelp = () => {
   console.log(`Zotero Self-Host Server
 
-Deploy, bootstrap, and recover a Zotero-compatible server on Cloudflare.
+Deploy, migrate, and verify a Zotero-compatible server on Cloudflare.
 
 Run with any package runner:
   npx zotero-selfhost-server setup
@@ -507,6 +633,10 @@ Commands:
   setup                 Provision D1/R2/DO, deploy, and create the first owner key
   setup --existing      Bootstrap an existing Deploy-to-Cloudflare installation
   recover               Create a replacement owner key through Cloudflare auth
+  import                 Plan or execute a resumable Zotero.org personal-library import
+  profile                Plan or execute a backed-up Zotero Desktop profile cutover
+  profile --rollback     Plan or execute restoration of a profile backup
+  acceptance             Run A -> B -> A sync through two disposable Desktop profiles
 
 Common options:
   --url <https://...>   Worker or custom-domain URL
@@ -514,6 +644,12 @@ Common options:
   --key-label <label>   Name for the newly created owner key
   --profile <name>      Wrangler authentication profile
   --location <hint>     D1/R2 location hint (for example: wnam)
+
+Migration safety:
+  Import and profile commands are dry-run by default; add --execute to write.
+  Put the target owner key in SELFHOST_API_KEY or --api-key-file.
+  Put the one-time Zotero.org key in ZOTERO_IMPORT_API_KEY or --zotero-key-file.
+  Secrets passed through environment variables or files are never saved by the CLI.
 `);
 };
 

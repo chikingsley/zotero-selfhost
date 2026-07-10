@@ -1,6 +1,13 @@
 
 ## Unreleased
 
+- Added dry-run-first, resumable Zotero.org personal-library import with object
+  key preservation, personal user-URI rewriting, source stability checks, and
+  attachment MD5 verification.
+- Added verified-import-gated Zotero Desktop profile backup, migration, first
+  full merge sync, and explicit rollback with a pre-rollback safety copy.
+- Added a production-auth A -> B -> A disposable Zotero Desktop acceptance
+  harness and Node-level CLI migration tests.
 - Added final `zotero-selfhost` Worker/D1/R2 naming, explicit production versus
   compatibility Wrangler configurations, and removed production root-password
   and signing-secret fallbacks.

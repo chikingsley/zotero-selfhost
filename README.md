@@ -18,14 +18,37 @@ or endorsed by Zotero.
   synchronization against the deployed D1/R2 implementation.
 - The current unreleased server adds final resource naming, one-time owner
   bootstrap, Cloudflare-account recovery, strict compatibility-test isolation,
-  and Zotero-protocol WebSocket notifications through a hibernating Durable
-  Object.
+  Zotero-protocol WebSocket notifications, a resumable Zotero.org personal-
+  library importer, backed-up Desktop profile migration/rollback, and a
+  two-profile Desktop acceptance harness.
 - The current deployed custom-domain installation still uses the older
   `zotero` / `zotero-attachments` resources. It has not yet been migrated to
   this unreleased resource layout.
 
 See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for
 measured results and [`TODO.md`](TODO.md) for the remaining product work.
+
+## Migrate An Existing Personal Library
+
+The migration commands are dry-run by default. Use a dedicated Zotero.org API
+key for the one-time source read and the self-host owner key for target writes:
+
+```bash
+export ZOTERO_IMPORT_API_KEY='<zotero.org key>'
+export SELFHOST_API_KEY='<self-host owner key>'
+
+npx zotero-selfhost-server import --url https://your-worker.example.com
+npx zotero-selfhost-server import --url https://your-worker.example.com --execute
+
+# Close Zotero before the execute step
+npx zotero-selfhost-server profile --url https://your-worker.example.com
+npx zotero-selfhost-server profile --url https://your-worker.example.com --execute
+```
+
+`npx`/`bunx`/`pnpx`/`yarn dlx` require the package to be published (or an
+explicit local directory, tarball, or Git source). The Deploy to Cloudflare
+button does not depend on npm. This package is not published yet, so from this
+checkout use `cd server && bun run cli -- <command>`.
 
 ## Install
 
