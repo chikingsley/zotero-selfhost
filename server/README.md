@@ -26,7 +26,7 @@ pnpx zotero-selfhost-server setup
 yarn dlx zotero-selfhost-server setup
 ```
 
-Version `0.1.0` is public on npm but predates the current native account-linking work. Until the current release is published, use this checkout for the behavior documented here:
+Version `0.1.3` is public on npm and includes the current native account-linking, import, migration, recovery, and acceptance behavior. To run the source checkout directly:
 
 ```bash
 bun run cli -- setup

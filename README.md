@@ -12,7 +12,7 @@ The production server at the custom domain is running on the final Worker, D1, R
 
 The latest isolated compatibility run completed with `451 passing`, `22` tests marked pending by the pinned upstream suite, and `0 application failures`. Disposable Zotero Desktop profiles have also completed metadata and attachment synchronization against the deployed D1/R2 implementation.
 
-The current source is prepared as `0.1.3` but has not been published to npm. GitHub Actions attempted trusted publication for `0.1.1` and `0.1.2`, but npm rejected the publishing identity. The registry still serves the older `0.1.0`, which predates native Desktop account linking, and the existing unpublished `v0.1.2` tag remains on its original commit rather than being moved. Until trusted publishing is corrected and the current work can be committed, commands in this README that use `npx`, `bunx`, `pnpx`, or `yarn dlx` describe the intended published interface; the current implementation must be run from this checkout with `cd server && bun run cli -- <command>`.
+Version `0.1.3` is published on npm through GitHub Actions trusted publishing. Fresh-cache executions through both `npx` and `bunx` passed against the published artifact, and the corresponding GitHub Release is public and marked Latest.
 
 See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for measured results and [`TODO.md`](TODO.md) for the remaining product work.
 
@@ -63,7 +63,7 @@ The importer hashes these files during planning and again before upload. It does
 
 ## Install
 
-The package exposes one `zotero-selfhost` executable. Once the current release replaces the older public `0.1.0` package, common package runners will invoke the same CLI:
+The package exposes one `zotero-selfhost` executable. Common package runners invoke the same published CLI:
 
 ```bash
 npx zotero-selfhost-server setup

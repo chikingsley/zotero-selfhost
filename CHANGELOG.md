@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3 - 2026-07-10
+
 - Chose a future first-party iPhone and iPad application as the mobile product direction, with self-hosted synchronization, offline reading, annotations, and metadata enrichment as the intended foundation instead of making a maintained fork of Zotero's mobile app the product dependency.
 - Passed the disposable Zotero Desktop smoke against the isolated compatibility deployment with the compatibility WebSocket configured in the temporary profile. The Desktop round-tripped metadata, a trashed note, full text, and a zipped attachment while an authenticated live subscription received the committed `topicUpdated` notification.
 - Moved the deployment, import, profile migration, recovery, and acceptance CLI plus its tests and operational scripts to authored TypeScript. npm package preparation now bundles that source into one ignored, executable `.mjs` artifact so `npx`, `bunx`, `pnpx`, and `yarn dlx` retain plain Node runtime compatibility without keeping generated JavaScript as source.
