@@ -16,7 +16,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runTwoProfileAcceptance } from "./lib/acceptance.mjs";
 import { defaultImportStatePath, runImport } from "./lib/importer.mjs";
-import { runProfileMigration, runProfileRollback } from "./lib/profile.mjs";
+import {
+  runNativeConnect,
+  runProfileMigration,
+  runProfileRollback,
+} from "./lib/profile.mjs";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -49,6 +53,10 @@ const main = async () => {
     await importLibrary(options);
     return;
   }
+  if (command === "connect") {
+    await connect(options);
+    return;
+  }
   if (command === "profile") {
     await profile(options);
     return;
@@ -59,6 +67,21 @@ const main = async () => {
   }
 
   throw new Error(`Unknown command '${command}'. Run with --help for usage.`);
+};
+
+const connect = async (options) => {
+  assertNodeVersion();
+  const saved = loadDeployment();
+  const targetURL = readOptionalURL(options.url ?? saved?.serverURL);
+  if (!targetURL) {
+    throw new Error("Connect needs --url or a deployment saved by setup.");
+  }
+  await runNativeConnect({
+    execute: options.execute === true,
+    profileDir: readOptionalOption(options, "profile-dir"),
+    profilesRoot: readOptionalOption(options, "profiles-root"),
+    targetURL,
+  });
 };
 
 const importLibrary = async (options) => {
@@ -668,7 +691,10 @@ const printSetupResult = (serverURL, apiKey) => {
   console.log(`Streaming URL: ${serverURL.replace(/^http/u, "ws")}/stream`);
   console.log(`Owner API key: ${apiKey}`);
   console.log(
-    "\nStore the owner key in a password manager. It is not saved by the CLI."
+    "\nStore the owner key as SELFHOST_API_KEY in a private environment file (mode 0600). It is not saved by the CLI."
+  );
+  console.log(
+    "Then run 'zotero-selfhost connect --execute' with Zotero closed."
   );
   console.log("Run 'zotero-selfhost recover' if every owner key is lost.");
 };
@@ -704,6 +730,7 @@ Commands:
   setup                 Provision D1/R2/DO, deploy, and create the first owner key
   setup --existing      Bootstrap an existing Deploy-to-Cloudflare installation
   recover               Create a replacement owner key through Cloudflare auth
+  connect               Configure native Zotero Desktop account linking without UI automation
   import                 Plan or execute a resumable Zotero.org personal-library import
   profile                Plan or execute a backed-up Zotero Desktop profile cutover
   profile --rollback     Plan or execute restoration of a profile backup
@@ -722,7 +749,7 @@ Direct R2 upload credentials:
   or pass each value through its corresponding --*-file option.
 
 Migration safety:
-  Import and profile commands are dry-run by default; add --execute to write.
+  Connect, import, and profile commands are dry-run by default; add --execute to write.
   Put the target owner key in SELFHOST_API_KEY or --api-key-file.
   Put the one-time Zotero.org key in ZOTERO_IMPORT_API_KEY or --zotero-key-file.
   Secrets passed through environment variables or files are never saved by the CLI.

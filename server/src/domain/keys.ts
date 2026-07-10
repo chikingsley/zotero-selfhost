@@ -39,6 +39,7 @@ export interface KeyStore {
   ) => Promise<"cancelled" | "conflict" | "missing">;
   completeSession: (input: {
     access?: unknown;
+    forceUserID?: boolean;
     sessionToken?: unknown;
     userID?: unknown;
   }) => Promise<"completed" | "conflict" | "invalid" | "missing">;
@@ -192,6 +193,7 @@ class D1KeyStore implements KeyStore {
 
   async completeSession(input: {
     access?: unknown;
+    forceUserID?: boolean;
     sessionToken?: unknown;
     userID?: unknown;
   }): Promise<"completed" | "conflict" | "invalid" | "missing"> {
@@ -209,7 +211,10 @@ class D1KeyStore implements KeyStore {
       return "conflict";
     }
 
-    const userID = session.user_id ?? parsePositiveInteger(input.userID);
+    const requestedUserID = parsePositiveInteger(input.userID);
+    const userID = input.forceUserID
+      ? requestedUserID
+      : (session.user_id ?? requestedUserID);
     if (!userID) {
       return "invalid";
     }
@@ -351,9 +356,10 @@ class D1KeyStore implements KeyStore {
       status: session.status,
     };
     if (session.status === "completed" && session.api_key && session.user_id) {
+      const key = await this.getKey(session.api_key);
       status.apiKey = session.api_key;
       status.userID = session.user_id;
-      status.username = getUsername(session.user_id);
+      status.username = key?.username ?? getUsername(session.user_id);
     }
 
     return status;

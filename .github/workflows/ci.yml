@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - name: Install packed CLI
+        run: |
+          package_path="$(npm pack --silent)"
+          install_root="$(mktemp -d)"
+          npm install --prefix "$install_root" "$PWD/$package_path"
+          "$install_root/node_modules/.bin/zotero-selfhost" --help
+

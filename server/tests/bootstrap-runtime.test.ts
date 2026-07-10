@@ -153,4 +153,86 @@ describe("owner bootstrap and recovery", () => {
     ).first<{ count: number }>();
     expect(owners?.count).toBe(2);
   });
+
+  it("completes Zotero's native browser login as the installation owner", async () => {
+    const owner = await env.DB.prepare(
+      "SELECT api_key, user_id FROM api_keys WHERE label = 'First desktop' AND is_owner = 1 AND revoked_at IS NULL"
+    ).first<{ api_key: string; user_id: number }>();
+    expect(owner).toBeTruthy();
+    if (!owner) {
+      throw new Error("Expected the bootstrapped owner key");
+    }
+
+    const createSession = await runtimeRequest("/keys/sessions", {
+      body: JSON.stringify({ userID: 16_689_138 }),
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Zotero/9.0 (macOS)",
+      },
+      method: "POST",
+    });
+    expect(createSession.status).toBe(201);
+    const session = (await createSession.json()) as {
+      loginURL: string;
+      sessionToken: string;
+    };
+    expect(session.loginURL).toBe(
+      `https://zotero.test/login?session=${session.sessionToken}`
+    );
+
+    const loginPage = await runtimeRequest(
+      `/login?session=${session.sessionToken}`
+    );
+    expect(loginPage.status).toBe(200);
+    expect(await loginPage.text()).toContain("Connect Zotero Desktop");
+
+    const invalid = await runtimeRequest("/login", {
+      body: new URLSearchParams({
+        ownerApiKey: "not-an-owner-key",
+        session: session.sessionToken,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+    expect(invalid.status).toBe(403);
+
+    const complete = await runtimeRequest("/login", {
+      body: new URLSearchParams({
+        ownerApiKey: owner.api_key,
+        session: session.sessionToken,
+      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    });
+    expect(complete.status).toBe(200);
+    expect(await complete.text()).toContain("Zotero connected");
+
+    const status = await runtimeRequest(
+      `/keys/sessions/${session.sessionToken}`
+    );
+    expect(status.status).toBe(200);
+    const result = (await status.json()) as {
+      apiKey: string;
+      status: string;
+      userID: number;
+      username: string;
+    };
+    expect(result).toMatchObject({
+      status: "completed",
+      userID: owner.user_id,
+      username: "owner",
+    });
+    expect(result.apiKey).toHaveLength(24);
+
+    const device = await env.DB.prepare(
+      "SELECT user_id, label, is_owner FROM api_keys WHERE api_key = ?"
+    )
+      .bind(result.apiKey)
+      .first<{ is_owner: number; label: string; user_id: number }>();
+    expect(device).toEqual({
+      is_owner: 0,
+      label: "Zotero macOS Login",
+      user_id: owner.user_id,
+    });
+  });
 });

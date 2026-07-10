@@ -1,27 +1,23 @@
 # Zotero Self-Host Server Package
 
-This package contains the Cloudflare Worker, D1 migrations, R2 file storage,
-Zotero streaming Durable Object, runtime tests, and deployment/migration CLI.
+This package contains the Cloudflare Worker, D1 migrations, R2 file storage, Zotero streaming Durable Object, runtime tests, and deployment/migration CLI.
 
 ## Resource Defaults
 
-| Resource | Default |
-| --- | --- |
-| Worker | `zotero-selfhost` |
-| D1 | `zotero-selfhost-db` |
-| R2 | `zotero-selfhost-attachments` |
-| Durable Object class | `ZoteroStreamHub` |
-| Durable Object binding | `STREAM_HUB` |
-| Health service | `zotero-selfhost` |
+| Resource               | Default                       |
+| ---------------------- | ----------------------------- |
+| Worker                 | `zotero-selfhost`             |
+| D1                     | `zotero-selfhost-db`          |
+| R2                     | `zotero-selfhost-attachments` |
+| Durable Object class   | `ZoteroStreamHub`             |
+| Durable Object binding | `STREAM_HUB`                  |
+| Health service         | `zotero-selfhost`             |
 
-`wrangler.jsonc` is reusable production configuration and intentionally omits a
-personal D1 UUID. `wrangler.compatibility.jsonc` uses separate resource names
-and is the only configuration that enables destructive compatibility setup.
+`wrangler.jsonc` is reusable production configuration and intentionally omits a personal D1 UUID. `wrangler.compatibility.jsonc` uses separate resource names and is the only configuration that enables destructive compatibility setup.
 
 ## Package Runners
 
-The npm package has one executable, `zotero-selfhost`. Because it is the only
-binary, all common runners resolve the same command:
+The npm package has one executable, `zotero-selfhost`. Because it is the only binary, all common runners resolve the same command:
 
 ```bash
 npx zotero-selfhost-server setup
@@ -35,6 +31,7 @@ The package is not published yet. From this checkout use:
 ```bash
 bun run cli -- setup
 bun run cli -- recover
+bun run cli -- connect
 ```
 
 ### `setup`
@@ -49,8 +46,7 @@ The default command:
 6. Installs a temporary `BOOTSTRAP_TOKEN`.
 7. Creates user 1 and the first owner API key.
 8. Deletes the temporary token.
-9. Saves only Worker name/URL under
-   `~/.config/zotero-selfhost/deployment.json`; it does not save API keys.
+9. Saves only Worker name/URL under `~/.config/zotero-selfhost/deployment.json`; it does not save API keys.
 
 Useful options:
 
@@ -69,34 +65,35 @@ Useful options:
 
 ### `recover`
 
-`recover` authenticates through Wrangler, uploads a random temporary
-`RECOVERY_TOKEN`, creates another owner key, and deletes the token. It does not
-delete users, library metadata, or R2 files.
+`recover` authenticates through Wrangler, uploads a random temporary `RECOVERY_TOKEN`, creates another owner key, and deletes the token. It does not delete users, library metadata, or R2 files.
 
 ## Credentials
 
-- `FILE_URL_SIGNING_SECRET`: permanent Worker-only secret for short-lived file
-  URLs. It can be rotated without deleting files.
-- `BOOTSTRAP_TOKEN`: temporary and accepted only before installation state
-  exists.
-- `RECOVERY_TOKEN`: temporary and accepted only to create a replacement owner
-  key on an initialized installation.
+- `FILE_URL_SIGNING_SECRET`: permanent Worker-only secret for short-lived file URLs. It can be rotated without deleting files.
+- `BOOTSTRAP_TOKEN`: temporary and accepted only before installation state exists.
+- `RECOVERY_TOKEN`: temporary and accepted only to create a replacement owner key on an initialized installation.
 - API keys: per-client credentials stored by the self-hosted server.
-- `ZOTERO_IMPORT_API_KEY`: one-time local Zotero.org source input, never a
-  Worker secret or persisted credential.
-- `SELFHOST_API_KEY`: local owner credential used by import, profile migration,
-  and acceptance commands. Prefer a password-manager environment integration
-  or `--api-key-file`; it is not stored by the CLI.
+- `ZOTERO_IMPORT_API_KEY`: one-time local Zotero.org source input, never a Worker secret or persisted credential.
+- `SELFHOST_API_KEY`: local owner credential used by import, profile migration, and acceptance commands. Store it in a private environment file with mode `0600` or use `--api-key-file`; it is not stored by the CLI.
 
-There is no production root username/password. Legacy password-style `/keys`
-creation is available only in explicit compatibility-test mode because the
-pinned upstream oracle exercises it.
+There is no production root username/password. Legacy password-style `/keys` creation is available only in explicit compatibility-test mode because the pinned upstream oracle exercises it.
 
 ## Import And Desktop Migration
 
-Migration is intentionally two-phase. First copy and verify the Zotero.org
-personal library while the existing Desktop profile still points to
-Zotero.org. Only then back up and switch that profile:
+### Native Desktop connection
+
+For a new or unlinked profile, native account linking is the primary path:
+
+```bash
+npx zotero-selfhost-server connect --url https://your-worker.example.com
+npx zotero-selfhost-server connect --url https://your-worker.example.com --execute
+```
+
+The command is dry-run-first and requires Zotero to be closed before `--execute`. It preserves existing `user.js` content, backs that file up when present, and installs only the custom API and streaming preferences. Reopen Zotero, choose Settings → Sync → Link Account, and enter the owner key on the self-hosted HTTPS login page. Zotero creates and stores a separate device key through its native session API. No Developer Tools or UI automation is involved.
+
+### Existing personal-library migration
+
+Migration is intentionally two-phase. First copy and verify the Zotero.org personal library while the existing Desktop profile still points to Zotero.org. Only then back up and switch that profile:
 
 ```bash
 export ZOTERO_IMPORT_API_KEY='<dedicated Zotero.org read key>'
@@ -116,28 +113,16 @@ npx zotero-selfhost-server profile --url https://your-worker.example.com
 npx zotero-selfhost-server profile --url https://your-worker.example.com --execute
 ```
 
-The importer preserves collection/item/search keys, rewrites personal-library
-Zotero URIs to the self-host user identity, includes trashed items, and checks
-attachment MD5s. It refuses a non-empty target unless `--merge` is explicit.
-State under `~/.config/zotero-selfhost/import-state.json` contains progress and
-hashes but no credentials, so interrupted attachment imports can resume.
+The importer preserves collection/item/search keys, rewrites personal-library Zotero URIs to the self-host user identity, includes trashed items, and checks attachment MD5s. It refuses a non-empty target unless `--merge` is explicit. State under `~/.config/zotero-selfhost/import-state.json` contains progress and hashes but no credentials, so interrupted attachment imports can resume.
 
-Profile migration requires that verified state. It copies the full
-Firefox/Zotero profile plus `zotero.sqlite*` files, changes only the personal
-library's sync authority/history, preserves attachment files, and leaves local
-group libraries in place but skipped because group migration is not part of
-this personal-library slice. Restore is explicit and also keeps a pre-rollback
-safety copy:
+Profile migration requires that verified state. It copies the full Firefox/Zotero profile plus `zotero.sqlite*` files, changes only the personal library's sync authority/history, preserves attachment files, and leaves local group libraries in place but skipped because group migration is not part of this personal-library slice. Restore is explicit and also keeps a pre-rollback safety copy:
 
 ```bash
 npx zotero-selfhost-server profile --rollback '/path/to/backup'
 npx zotero-selfhost-server profile --rollback '/path/to/backup' --execute
 ```
 
-Finally, the macOS acceptance command creates two short-lived device keys and
-two disposable Zotero profiles. A uploads metadata and a file, B downloads and
-edits them, and A downloads B's change. It never invokes `/test/setup` and
-revokes the temporary keys afterward:
+Finally, the macOS acceptance command creates two short-lived device keys and two disposable Zotero profiles. A uploads metadata and a file, B downloads and edits them, and A downloads B's change. It never invokes `/test/setup` and revokes the temporary keys afterward:
 
 ```bash
 npx zotero-selfhost-server acceptance --url https://your-worker.example.com
@@ -146,15 +131,9 @@ npx zotero-selfhost-server acceptance --url https://your-worker.example.com --ex
 
 ## Streaming
 
-Clients connect to `wss://<worker>/stream`, receive `connected`, and send the
-standard Zotero `createSubscriptions` message. The hibernating Durable Object
-stores subscriptions as WebSocket attachments. Existing mutation responses
-already contain Zotero notification metadata; middleware publishes those
-events only after a D1/R2 write has completed.
+Clients connect to `wss://<worker>/stream`, receive `connected`, and send the standard Zotero `createSubscriptions` message. The hibernating Durable Object stores subscriptions as WebSocket attachments. Existing mutation responses already contain Zotero notification metadata; middleware publishes those events only after a D1/R2 write has completed.
 
-The Durable Object does not contain authoritative library data. A
-`topicUpdated` message tells a client to run the normal HTTP synchronization
-algorithm.
+The Durable Object does not contain authoritative library data. A `topicUpdated` message tells a client to run the normal HTTP synchronization algorithm.
 
 ## Commands
 
@@ -178,22 +157,17 @@ bun run check
 bun run deploy:dry-run
 ```
 
-`bun run check` runs Ultracite/Biome, generated Wrangler binding types,
-TypeScript, the independent compatibility-runner typecheck, Workers Vitest, and
-an npm package dry-run.
+`bun run check` runs Ultracite/Biome, generated Wrangler binding types, TypeScript, the independent compatibility-runner typecheck, Workers Vitest, and an npm package dry-run.
 
 ## Runtime Safety Net
 
-Workers Vitest applies every tracked D1 migration and supplies isolated D1, R2,
-Durable Object, and compatibility-only bindings. Coverage includes:
+Workers Vitest applies every tracked D1 migration and supplies isolated D1, R2, Durable Object, and compatibility-only bindings. Coverage includes:
 
 - health/OpenAPI and generated bindings;
 - D1 version/precondition behavior;
 - D1/R2 attachment upload/register/download;
-- one-time bootstrap, duplicate-bootstrap rejection, owner-key administration,
-  and recovery;
+- one-time bootstrap, duplicate-bootstrap rejection, owner-key administration, and recovery;
 - Zotero streaming authentication and event delivery;
 - bundled bsdiff/xdelta/vcdiff WASM execution.
 
-The independently pinned Zotero oracle stays outside Vitest so it remains an
-unmodified black-box test suite.
+The independently pinned Zotero oracle stays outside Vitest so it remains an unmodified black-box test suite.

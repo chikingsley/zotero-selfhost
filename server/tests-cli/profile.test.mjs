@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +14,7 @@ import { after, test } from "node:test";
 import {
   discoverProfile,
   parseProfilesIni,
+  runNativeConnect,
   runProfileMigration,
 } from "../cli/lib/profile.mjs";
 
@@ -43,6 +51,48 @@ Default=1
   const discovered = discoverProfile({ profilesRoot: root });
   assert.equal(discovered.profileDir, profileDir);
   assert.equal(discovered.dataDir, dataDir);
+});
+
+test("installs idempotent native account-linking preferences", async () => {
+  const profileDir = join(root, "profile-connect");
+  const dataDir = join(root, "data-connect");
+  mkdirSync(profileDir, { recursive: true });
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(join(dataDir, "zotero.sqlite"), "database");
+  writeFileSync(
+    join(profileDir, "prefs.js"),
+    `user_pref("extensions.zotero.dataDir", ${JSON.stringify(dataDir)});\n`
+  );
+  writeFileSync(join(profileDir, "user.js"), "// Keep this preference\n");
+
+  const result = await runNativeConnect({
+    execute: true,
+    log: () => undefined,
+    profileDir,
+    targetURL: "https://library.example.com",
+  });
+  assert.equal(result.executed, true);
+  assert.ok(result.backupPath && existsSync(result.backupPath));
+  const contents = readFileSync(join(profileDir, "user.js"), "utf8");
+  assert.match(contents, /Keep this preference/u);
+  assert.match(
+    contents,
+    /extensions\.zotero\.api\.url.*https:\/\/library\.example\.com\//u
+  );
+  assert.match(
+    contents,
+    /extensions\.zotero\.streaming\.url.*wss:\/\/library\.example\.com\/stream/u
+  );
+  assert.equal(contents.match(/zotero-selfhost connect begin/gu)?.length, 1);
+
+  await runNativeConnect({
+    execute: true,
+    log: () => undefined,
+    profileDir,
+    targetURL: "https://library.example.com",
+  });
+  const repeated = readFileSync(join(profileDir, "user.js"), "utf8");
+  assert.equal(repeated.match(/zotero-selfhost connect begin/gu)?.length, 1);
 });
 
 test("plans a profile cutover only when import state matches the owner target", async () => {

@@ -22,6 +22,83 @@ import {
   runZoteroScript,
 } from "./zotero-desktop.mjs";
 
+const connectBlockStart = "// zotero-selfhost connect begin";
+const connectBlockEnd = "// zotero-selfhost connect end";
+
+export const runNativeConnect = async ({
+  execute = false,
+  log = console.log,
+  profileDir: explicitProfileDir,
+  profilesRoot,
+  targetURL,
+}) => {
+  const profile = discoverProfile({
+    profileDir: explicitProfileDir,
+    profilesRoot,
+  });
+  const apiURL = normalizeOrigin(targetURL).href;
+  const streamURL = streamingURL(new URL(apiURL));
+  const userJSPath = join(profile.profileDir, "user.js");
+  const plan = {
+    apiURL,
+    profileDir: profile.profileDir,
+    streamingURL: streamURL,
+    userJSPath,
+  };
+
+  log("\nZotero native connection plan:");
+  log(`  Profile:       ${plan.profileDir}`);
+  log(`  API URL:       ${plan.apiURL}`);
+  log(`  Streaming URL: ${plan.streamingURL}`);
+  log(`  Preferences:   ${plan.userJSPath}`);
+  if (!execute) {
+    log(
+      "\nDry run only. Add --execute with Zotero closed to write preferences."
+    );
+    return { executed: false, plan };
+  }
+
+  await assertZoteroStopped();
+  const current = existsSync(userJSPath)
+    ? readFileSync(userJSPath, "utf8")
+    : "";
+  const backupPath = current
+    ? `${userJSPath}.zotero-selfhost-${timestamp()}.bak`
+    : null;
+  if (backupPath) {
+    cpSync(userJSPath, backupPath, { errorOnExist: true });
+  }
+  const block = [
+    connectBlockStart,
+    `user_pref("extensions.zotero.api.url", ${JSON.stringify(apiURL)});`,
+    `user_pref("extensions.zotero.streaming.url", ${JSON.stringify(streamURL)});`,
+    'user_pref("extensions.zotero.streaming.enabled", true);',
+    connectBlockEnd,
+  ].join("\n");
+  const withoutExistingBlock = current
+    .replace(
+      new RegExp(
+        `${escapeRegularExpression(connectBlockStart)}[\\s\\S]*?${escapeRegularExpression(connectBlockEnd)}\\n?`,
+        "gu"
+      ),
+      ""
+    )
+    .trimEnd();
+  writeFileSync(
+    userJSPath,
+    `${withoutExistingBlock ? `${withoutExistingBlock}\n\n` : ""}${block}\n`,
+    { mode: 0o600 }
+  );
+  chmodSync(userJSPath, 0o600);
+
+  log("\nNative Zotero connection preferences installed.");
+  if (backupPath) {
+    log(`Existing user.js backup: ${backupPath}`);
+  }
+  log("Open Zotero, then choose Settings -> Sync -> Link Account.");
+  return { backupPath, executed: true, plan };
+};
+
 export const runProfileMigration = async ({
   backupRoot,
   dataDir: explicitDataDir,
@@ -547,3 +624,6 @@ const assertSecret = (value, name) => {
     throw new Error(`${name} is required and must not be empty.`);
   }
 };
+
+const escapeRegularExpression = (value) =>
+  value.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");

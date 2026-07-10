@@ -2,7 +2,24 @@
   "name": "zotero-selfhost-server",
   "version": "0.1.0",
   "description": "Zotero-compatible self-hosted sync server for Cloudflare Workers, D1, R2, and Durable Objects",
+  "author": "Simon Peacock",
   "license": "MIT",
+  "homepage": "https://github.com/chikingsley/zotero-selfhost#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chikingsley/zotero-selfhost.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chikingsley/zotero-selfhost/issues"
+  },
+  "keywords": [
+    "zotero",
+    "self-hosted",
+    "cloudflare-workers",
+    "d1",
+    "r2",
+    "sync-server"
+  ],
   "type": "module",
   "module": "src/index.ts",
   "bin": {

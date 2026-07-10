@@ -6,6 +6,7 @@ Current status: the production Worker, personal library, attachment storage, and
 
 ## Release
 
+- [ ] Validate native `connect` plus browser account linking against the production Worker with a disposable Zotero profile.
 - [ ] Exercise the explicit Desktop rollback command against the real migration backup, verify the Zotero.org profile restoration, and repeat the cutover.
 - [ ] Publish `zotero-selfhost-server` to npm and execute all four documented package-runner forms against the published artifact.
 - [ ] Make the repository public and validate the Deploy to Cloudflare button from a fresh Cloudflare account.
