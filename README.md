@@ -1,8 +1,8 @@
 # Zotero Self-Host Server
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chikingsley/zotero-selfhost/tree/main/server)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chikingsley/zotero-selfhost)
 
-A self-hostable Zotero API v3 compatible sync server built on Cloudflare Workers, D1, R2, and Durable Objects. The deployable product is in [`server/`](server/).
+A self-hostable Zotero API v3 compatible sync server built on Cloudflare Workers, D1, R2, and Durable Objects. The repository root is the deployable Worker package.
 
 This is an independent implementation. “Zotero” is a registered trademark of the Corporation for Digital Scholarship; this project is not affiliated with or endorsed by Zotero.
 
@@ -75,7 +75,6 @@ yarn dlx zotero-selfhost-server setup
 From a repository checkout today:
 
 ```bash
-cd server
 bun install
 bun run cli -- setup
 ```
@@ -100,7 +99,7 @@ npx zotero-selfhost-server setup --existing \
   --url https://your-worker.example.workers.dev
 ```
 
-The source repository is public and the deploy button points at the `server/` deployment directory. A complete fresh-account button deployment is still an explicit release test rather than a claimed completed result.
+The source repository is public and the deploy button points at the repository root, where Cloudflare can read the package and Wrangler configuration directly. A complete fresh-account button deployment is still an explicit release test rather than a claimed completed result.
 
 ## Recovery
 
@@ -126,8 +125,6 @@ Zotero Desktop can be pointed at a custom API server. The stock Zotero mobile ap
 ## Development And Compatibility
 
 ```bash
-cd server
-
 # Production-shaped local Worker: destructive test administration is absent
 bun run dev
 
@@ -146,7 +143,7 @@ The production Worker returns `404` for `/test/*`. The compatibility configurati
 
 ## Documentation
 
-- [Server package and command reference](server/README.md)
+- [CLI and operator command reference](docs/cli.md)
 - [Cloudflare production and migration runbook](docs/cloudflare-production-runbook.md)
 - [Compatibility harness](compatibility/README.md)
 - [Known differences](compatibility/known-differences.md)

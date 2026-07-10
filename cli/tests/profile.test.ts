@@ -16,7 +16,7 @@ import {
   parseProfilesIni,
   runNativeConnect,
   runProfileMigration,
-} from "../cli-src/lib/profile.ts";
+} from "../src/lib/profile.ts";
 
 const root = mkdtempSync(join(tmpdir(), "zotero-profile-test-"));
 
@@ -122,7 +122,9 @@ test("plans a profile cutover only when import state matches the owner target", 
     response.statusCode = 404;
     response.end("{}");
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolveListen) => {
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
   try {
     const address = server.address();
     assert.ok(address && typeof address === "object");
@@ -147,7 +149,7 @@ test("plans a profile cutover only when import state matches the owner target", 
     assert.equal(result.plan.importVerified, true);
     assert.equal(result.plan.sourceUserID, 42);
   } finally {
-    await new Promise((resolve, reject) =>
+    await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve()))
     );
   }

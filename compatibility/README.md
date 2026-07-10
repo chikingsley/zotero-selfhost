@@ -20,7 +20,7 @@ Important files:
 The remote tests are HTTP-level tests. That makes them reusable: first against official `dataserver`, later against our candidate server.
 
 `references/` is intentionally not committed. It is generated maintenance
-input, not product source. Bootstrap the exact tracked oracle from `server/`:
+input, not product source. Bootstrap the exact tracked oracle from the repository root:
 
 ```bash
 bun run compat:setup
@@ -60,7 +60,7 @@ candidate; local application-level D1/R2 behavior is covered by Workers Vitest.
 
 | Layer | Command | Purpose |
 | --- | --- | --- |
-| Workers runtime | `cd server && bun run test:runtime` | Fast tests inside `workerd` with isolated D1/R2/DO bindings and real migrations. |
+| Workers runtime | `bun run test:runtime` | Fast tests inside `workerd` with isolated D1/R2/DO bindings and real migrations. |
 | Official Zotero oracle | `bun run test:oracle:smoke` / `bun run test:oracle` | Unmodified upstream black-box HTTP compatibility tests. |
 | Live client | `bun run smoke:desktop` | Real Zotero Desktop sync against the configured deployment. |
 
@@ -117,7 +117,7 @@ Examples:
 
 ```bash
 # One-time oracle setup
-cd server && bun run compat:setup
+bun run compat:setup
 
 # Terminal 1: explicitly isolated destructive compatibility Worker
 bun run dev:compatibility
@@ -144,6 +144,6 @@ returns `404` for `/test/*` administration.
 For the deployed Cloudflare D1/R2 candidate, use an ignored config such as
 `compatibility/config/candidate-cloudflare.local.json` with the live
 `apiURLPrefix`, `s3Bucket`, `awsRegion: "auto"`, and
-`cloudflareR2FromApiToken: true`. Run the harness from `server/` so Bun loads
-the ignored `server/.env`; the harness derives temporary AWS SDK environment
+`cloudflareR2FromApiToken: true`. Run the harness from the repository root so Bun loads
+the ignored `.env`; the harness derives temporary AWS SDK environment
 variables from the Cloudflare token without writing R2 secrets into the repo.

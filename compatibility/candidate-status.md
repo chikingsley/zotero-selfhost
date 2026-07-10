@@ -20,7 +20,7 @@ Latest real-client verification: 2026-07-09T09:04:06Z against
   `/tmp/zotero-real-app-smoke`.
 - Desktop smoke passed: created a book, child note, and stored-file attachment;
   synced data and files; edited the book; trashed the note; synced again.
-- The smoke is now repeatable via `cd server && bun run smoke:desktop`; the
+- The smoke is now repeatable via `bun run smoke:desktop` from the repository root; the
   script drives Zotero's own Run JavaScript window, waits for the app-written
   result file, then verifies remote API state.
 - Outside-the-app API verification confirmed the edited title, the note in
@@ -37,9 +37,8 @@ Earlier first-client official board: 2026-07-09T06:21:44Z against
 Command:
 
 ```bash
-cd server
-bun ../compatibility/run-zotero-tests.ts \
-  --config ../compatibility/config/candidate-cloudflare.local.json \
+bun compatibility/run-zotero-tests.ts \
+  --config compatibility/config/candidate-cloudflare.local.json \
   -- -v 3 -t 120000 version,collection,item,file
 ```
 
@@ -55,7 +54,7 @@ Notes:
 
 - The deployed Worker uses Cloudflare D1 and R2 bindings, not in-memory storage.
 - The local ignored Cloudflare config derives R2 S3-compatible AWS SDK
-  credentials from the ignored `server/.env` token at runtime.
+  credentials from the ignored `.env` token at runtime.
 - The official partial-update test still skips optional local binary diff tool
   subcases when `bsdiff`, `xdelta3`, and `vcdiff` are not installed, but the
   Zotero test case itself passes.
@@ -69,9 +68,8 @@ Latest broad live run: 2026-07-09T09:03:43Z against
 Command:
 
 ```bash
-cd server
-bun ../compatibility/run-zotero-tests.ts \
-  --config ../compatibility/config/candidate-cloudflare.local.json \
+bun compatibility/run-zotero-tests.ts \
+  --config compatibility/config/candidate-cloudflare.local.json \
   -- -v 3 -t 240000
 ```
 
@@ -128,7 +126,7 @@ in-memory mode (`server/scripts/serve.ts`). Last full board: 2026-07-08.
 
 ```bash
 # Historical only: the former in-memory candidate is no longer available.
-# Current local runs use `cd server && bun run dev` and the commands documented
+# Current local runs use `bun run dev` from the repository root and the commands documented
 # in compatibility/README.md.
 ```
 

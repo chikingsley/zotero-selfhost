@@ -2,7 +2,7 @@
 
 ## Product Boundary
 
-`server/` is a Zotero-compatible sync authority on Cloudflare:
+The repository root is a Zotero-compatible sync authority on Cloudflare:
 
 - Worker HTTP API and authentication;
 - D1 metadata, versions, users, keys, and sync state;
@@ -17,7 +17,11 @@ source. After cutover, the self-hosted server is authoritative.
 
 ## Permanent Maintenance Surfaces
 
-- `server/`: product package, CLI, migrations, Worker/DO code, and runtime tests.
+- `src/`, `migrations/`, and the root Wrangler files: deployed Worker package.
+- `cli/`: authored, published CLI source and its unit tests.
+- `build/`: package-build internals that are not product commands.
+- `tools/recovery/`: explicit operator-only D1 and R2 recovery utilities.
+- `tests/`: Workers-runtime tests plus opt-in live deployment probes under `tests/live/`.
 - `compatibility/`: pinned official black-box oracle, configs, and measured
   status.
 - `docs/cloudflare-production-runbook.md`: deployment, recovery, backup, and
@@ -30,7 +34,7 @@ not bundled or published.
 
 ## Release Loop
 
-1. Run `cd server && bun run check`.
+1. Run `bun run check` from the repository root.
 2. Run the pinned official smoke against an isolated compatibility Worker.
 3. Run the complete oracle before compatibility milestones.
 4. Run disposable-profile and two-device Desktop tests.

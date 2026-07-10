@@ -1,6 +1,6 @@
-# Zotero Self-Host Server Package
+# CLI And Operator Commands
 
-This package contains the Cloudflare Worker, D1 migrations, R2 file storage, Zotero streaming Durable Object, runtime tests, and deployment/migration CLI.
+The repository root is the Cloudflare Worker and npm package. Authored CLI code lives under `cli/src`, its tests live beside it under `cli/tests`, packaging internals live under `build`, deployed-system probes live under `tests/live`, and operator-only recovery utilities live under `tools/recovery`.
 
 ## Resource Defaults
 
@@ -161,7 +161,7 @@ bun run deploy:dry-run
 
 ### Recovery drill
 
-Maintainers can restore a D1 SQL export into a newly created, empty disposable database without writing to production. The fallback restore uses parameterized D1 queries, so it does not depend on Cloudflare's temporary bulk-import upload host:
+The recovery utilities are maintainer tools, not commands in the published end-user CLI. They require explicit Cloudflare credentials and resource names. Maintainers can restore a D1 SQL export into a newly created, empty disposable database without writing to production. The fallback restore uses parameterized D1 queries, so it does not depend on Cloudflare's temporary bulk-import upload host:
 
 ```sh
 bun run restore:d1 <disposable-database-id> /path/to/database.sql

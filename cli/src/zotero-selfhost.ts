@@ -22,7 +22,11 @@ import {
   runProfileRollback,
 } from "./lib/profile.ts";
 
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const packageRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  ".."
+);
 const require = createRequire(import.meta.url);
 const wranglerBin = join(
   dirname(require.resolve("wrangler/package.json")),

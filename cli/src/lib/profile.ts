@@ -35,13 +35,35 @@ interface ProfileSection {
 const connectBlockStart = "// zotero-selfhost connect begin";
 const connectBlockEnd = "// zotero-selfhost connect end";
 
+interface NativeConnectOptions {
+  execute?: boolean;
+  log?: typeof console.log;
+  profileDir?: string;
+  profilesRoot?: string;
+  targetURL: string;
+}
+
+interface ProfileMigrationOptions {
+  backupRoot?: string;
+  dataDir?: string;
+  execute?: boolean;
+  fetchImpl?: typeof fetch;
+  importStatePath?: string;
+  log?: typeof console.log;
+  profileDir?: string;
+  profilesRoot?: string;
+  targetApiKey: string;
+  targetURL: string;
+  zoteroApp?: string;
+}
+
 export const runNativeConnect = async ({
   execute = false,
   log = console.log,
   profileDir: explicitProfileDir,
   profilesRoot,
   targetURL,
-}) => {
+}: NativeConnectOptions) => {
   const profile = discoverProfile({
     profileDir: explicitProfileDir,
     profilesRoot,
@@ -121,7 +143,7 @@ export const runProfileMigration = async ({
   targetApiKey,
   targetURL,
   zoteroApp = defaultZoteroApp,
-}) => {
+}: ProfileMigrationOptions) => {
   assertSecret(targetApiKey, "SELFHOST_API_KEY");
   const target = new ZoteroAPIClient({
     apiKey: targetApiKey,

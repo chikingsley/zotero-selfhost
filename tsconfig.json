@@ -36,5 +36,6 @@
     "vitest.config.ts",
     "worker-configuration.d.ts",
     "wrangler.jsonc"
-  ]
+  ],
+  "exclude": ["tests/live/**/*.ts"]
 }

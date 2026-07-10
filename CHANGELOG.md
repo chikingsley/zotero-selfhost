@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Flattened the deployable Worker package from `server/` into the repository root so local development, CI, npm publishing, and the Deploy to Cloudflare button share one project root. Separated authored CLI source/tests, generated CLI output, package-build internals, live deployment probes, and operator-only recovery utilities into explicitly named directories.
+
 ## 0.1.3 - 2026-07-10
 
 - Chose a future first-party iPhone and iPad application as the mobile product direction, with self-hosted synchronization, offline reading, annotations, and metadata enrichment as the intended foundation instead of making a maintained fork of Zotero's mobile app the product dependency.

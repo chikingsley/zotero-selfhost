@@ -20,7 +20,9 @@ coverage
 .wrangler
 *.tsbuildinfo
 *.log
-server/.package.json.prepack
+.package.json.prepack
+.bsdiff-wasm-test.prepack
+*.tgz
 
 # macOS
 .DS_Store

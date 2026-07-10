@@ -31,7 +31,7 @@ token. Setup installs these values as Worker secrets.
 
 ## Deploy To Cloudflare Button
 
-The root README button points at the `server/` subdirectory. Cloudflare can
+The root README button points at the repository root. Cloudflare can
 provision D1, R2, and Durable Objects from the tracked Wrangler configuration
 and prompt for the permanent secrets from `.env.example`.
 

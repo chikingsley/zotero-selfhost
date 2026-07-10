@@ -35,7 +35,7 @@ const fullTextStateRegisterPath = join(
 const assertOracleReady = () => {
   if (!existsSync(join(remoteTestsDir, "run_tests"))) {
     throw new Error(
-      "The pinned Zotero oracle is not installed. Run `cd server && bun run compat:setup`."
+      "The pinned Zotero oracle is not installed. Run `bun run compat:setup`."
     );
   }
 
@@ -48,7 +48,7 @@ const assertOracleReady = () => {
   const checkoutCommit = new TextDecoder().decode(git.stdout).trim();
   if (git.exitCode !== 0 || checkoutCommit !== lock.commit) {
     throw new Error(
-      `Zotero oracle checkout mismatch: expected ${lock.commit}, found ${checkoutCommit || "unreadable"}. Run \`cd server && bun run compat:setup\`.`
+      `Zotero oracle checkout mismatch: expected ${lock.commit}, found ${checkoutCommit || "unreadable"}. Run \`bun run compat:setup\`.`
     );
   }
 
@@ -60,18 +60,18 @@ const assertOracleReady = () => {
   const checkoutOrigin = new TextDecoder().decode(origin.stdout).trim();
   if (origin.exitCode !== 0 || checkoutOrigin !== lock.repository) {
     throw new Error(
-      `Zotero oracle origin mismatch: expected ${lock.repository}, found ${checkoutOrigin || "unreadable"}. Run \`cd server && bun run compat:setup\`.`
+      `Zotero oracle origin mismatch: expected ${lock.repository}, found ${checkoutOrigin || "unreadable"}. Run \`bun run compat:setup\`.`
     );
   }
 
   if (!existsSync(join(remoteTestsDir, "node_modules"))) {
     throw new Error(
-      "Zotero oracle dependencies are missing. Run `cd server && bun run compat:setup`."
+      "Zotero oracle dependencies are missing. Run `bun run compat:setup`."
     );
   }
   if (!existsSync(schemaPath)) {
     throw new Error(
-      "The pinned Zotero schema is missing. Run `cd server && bun run compat:setup`."
+      "The pinned Zotero schema is missing. Run `bun run compat:setup`."
     );
   }
   const schemaDigest = createHash("sha256")
@@ -79,7 +79,7 @@ const assertOracleReady = () => {
     .digest("hex");
   if (schemaDigest !== lock.schema.sha256) {
     throw new Error(
-      `Zotero schema mismatch: expected ${lock.schema.sha256}, found ${schemaDigest}. Run \`cd server && bun run compat:setup\`.`
+      `Zotero schema mismatch: expected ${lock.schema.sha256}, found ${schemaDigest}. Run \`bun run compat:setup\`.`
     );
   }
 };

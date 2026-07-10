@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { runImport } from "../cli-src/lib/importer.ts";
+import { runImport } from "../src/lib/importer.ts";
 
 const attachmentBytes = Buffer.from("zotero-selfhost importer attachment\n");
 const attachmentMd5 = createHash("md5").update(attachmentBytes).digest("hex");
@@ -25,7 +25,16 @@ let origin: string;
 let server: Server;
 let targetVersion = 0;
 let uploadCount = 0;
-const target = {
+const target: {
+  collections: Record<string, unknown>[];
+  files: Map<string, Buffer>;
+  fulltext: Record<string, unknown>;
+  items: Record<string, unknown>[];
+  searches: Record<string, unknown>[];
+  settings: Record<string, unknown>;
+  uploadParts: Map<string, Map<number, Buffer>>;
+  uploads: Map<string, Buffer>;
+} = {
   collections: [],
   files: new Map(),
   fulltext: {},
@@ -92,7 +101,9 @@ before(async () => {
       response.end(error instanceof Error ? error.stack : String(error));
     }
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolveListen) => {
+    server.listen(0, "127.0.0.1", resolveListen);
+  });
   const address = server.address();
   if (!(address && typeof address === "object")) {
     throw new Error("Test server did not expose an address.");
@@ -101,7 +112,7 @@ before(async () => {
 });
 
 after(async () => {
-  await new Promise((resolve, reject) =>
+  await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve()))
   );
   rmSync(temporaryDirectory, { force: true, recursive: true });
@@ -147,7 +158,7 @@ test("plans, executes, verifies, and resumes a personal-library import", async (
   assert.equal(imported.executed, true);
   assert.equal(target.items.length, 3);
   assert.equal(
-    target.items[0].relations["dc:relation"],
+    (target.items[0]?.relations as Record<string, string>)["dc:relation"],
     "http://zotero.org/users/1/items/CCCC4444"
   );
   assert.deepEqual(target.files.get("CCCC4444"), attachmentBytes);
@@ -346,6 +357,9 @@ async function targetRoute(url, request, response) {
     const { parts } = await requestJSON(request);
     if (parts.length > 0) {
       const uploadedParts = target.uploadParts.get(key);
+      if (!uploadedParts) {
+        throw new Error(`No uploaded parts found for ${key}`);
+      }
       target.uploads.set(
         key,
         Buffer.concat(
@@ -385,7 +399,11 @@ async function targetRoute(url, request, response) {
     }
     const body = new URLSearchParams(await requestText(request));
     if (body.has("upload")) {
-      target.files.set(key, target.uploads.get(key));
+      const uploaded = target.uploads.get(key);
+      if (!uploaded) {
+        throw new Error(`No uploaded file found for ${key}`);
+      }
+      target.files.set(key, uploaded);
       targetVersion += 1;
       response.writeHead(204, versionHeaders(targetVersion));
       return response.end();

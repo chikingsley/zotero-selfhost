@@ -28,6 +28,22 @@ import {
 
 export { defaultImportStatePath, readImportState } from "./importer-state.ts";
 
+interface ImportOptions {
+  execute?: boolean;
+  fetchImpl?: typeof fetch;
+  includeFiles?: boolean;
+  includeFulltext?: boolean;
+  log?: typeof console.log;
+  merge?: boolean;
+  recoveryManifestPath?: string;
+  resetState?: boolean;
+  sourceApiKey: string;
+  sourceURL?: string;
+  statePath?: string;
+  targetApiKey: string;
+  targetURL: string;
+}
+
 export const runImport = async ({
   execute = false,
   fetchImpl = globalThis.fetch,
@@ -42,7 +58,7 @@ export const runImport = async ({
   statePath = defaultImportStatePath(),
   targetApiKey,
   targetURL,
-}) => {
+}: ImportOptions) => {
   assertSecret(sourceApiKey, "ZOTERO_IMPORT_API_KEY");
   assertSecret(targetApiKey, "SELFHOST_API_KEY");
 
