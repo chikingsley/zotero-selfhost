@@ -1,154 +1,168 @@
 # Zotero Self-Host Server
 
+[![CI](https://github.com/chikingsley/zotero-selfhost/actions/workflows/ci.yml/badge.svg)](https://github.com/chikingsley/zotero-selfhost/actions/workflows/ci.yml)
+[![Compatibility oracle](https://github.com/chikingsley/zotero-selfhost/actions/workflows/compatibility.yml/badge.svg)](https://github.com/chikingsley/zotero-selfhost/actions/workflows/compatibility.yml)
+[![npm](https://img.shields.io/npm/v/zotero-selfhost-server)](https://www.npmjs.com/package/zotero-selfhost-server)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/chikingsley/zotero-selfhost)
 
-A self-hostable Zotero API v3 compatible sync server built on Cloudflare Workers, D1, R2, and Durable Objects. The repository root is the deployable Worker package.
+## What It Is
 
-This is an independent implementation. “Zotero” is a registered trademark of the Corporation for Digital Scholarship; this project is not affiliated with or endorsed by Zotero.
+Zotero Self-Host Server is an independent, self-hostable implementation of the Zotero API v3 synchronization protocol. It runs on Cloudflare Workers and uses D1 for library metadata, R2 for attachment bytes, and a Durable Object for live change notifications.
 
-## Current Status
+The server is designed for people who want Zotero Desktop synchronization and attachment storage under their own Cloudflare account. It can start with a new Desktop profile or copy an existing personal library from Zotero.org without deleting or modifying the source library.
 
-The production server at the custom domain is running on the final Worker, D1, R2, and Durable Object resources. The personal Zotero library and attachments were imported, the real Desktop profile was migrated to that server, and ordinary Desktop synchronization is working. The legacy Cloudflare stack remains intact only as a server-side rollback target.
+“Zotero” is a registered trademark of the Corporation for Digital Scholarship. This project is not affiliated with or endorsed by Zotero.
 
-The latest isolated compatibility run completed with `451 passing`, `22` tests marked pending by the pinned upstream suite, and `0 application failures`. Disposable Zotero Desktop profiles have also completed metadata and attachment synchronization against the deployed D1/R2 implementation.
+## Maturity And Known Limitations
 
-Version `0.1.3` is published on npm through GitHub Actions trusted publishing. Fresh-cache executions through both `npx` and `bunx` passed against the published artifact, and the corresponding GitHub Release is public and marked Latest.
+Version `0.1.3` is published on npm. The core personal-library API, Desktop synchronization, attachment transfer, import, owner recovery, and Cloudflare deployment path are implemented and have passed Workers-runtime, upstream Zotero protocol, and real-client verification.
 
-See [`compatibility/candidate-status.md`](compatibility/candidate-status.md) for measured results and [`TODO.md`](TODO.md) for the remaining product work.
+The project is still pre-1.0. A fresh-account Deploy to Cloudflare acceptance run and a passive two-client notification/file round trip remain explicit release checks. Stock Zotero mobile applications do not support selecting an arbitrary API server, so mobile access requires a future compatible client rather than this server alone.
 
-## What Each Desktop Command Does
+Open release work is recorded in [`TODO.md`](TODO.md). Completed changes are recorded in [`CHANGELOG.md`](CHANGELOG.md). Dated compatibility evidence is recorded in [`compatibility/verification-history.md`](compatibility/verification-history.md); it is evidence from specific revisions and deployments, not a promise that every historical count describes the current commit.
 
-`setup` and `setup --existing` operate on Cloudflare. They provision or finish configuring the Worker, D1 database, R2 bucket, Durable Object, server secrets, and first owner key. They do not open Zotero Desktop, edit a Zotero profile, or run JavaScript inside Zotero.
+## Quick Start
 
-`connect` is the normal path for a new or unlinked Zotero profile. The person does not need a Zotero.org account. They need access to their own deployed self-host server and its owner key, which authorizes the Desktop once and is exchanged for a separate device key. With Zotero closed, `connect` writes only the custom API and streaming preferences into the selected profile's `user.js`, preserving and backing up any existing file. After Zotero reopens, the user chooses Settings → Sync → Link Account. Zotero creates a login session, opens this server's `/login` page, receives the device key, stores that key itself, and then uses Zotero's ordinary synchronization engine. The native `/login` route and `connect` command are implemented, tested, deployed, and passed a production native-login smoke test.
-
-`import` is a one-time copy from Zotero.org into the self-hosted server. It does not delete or modify the Zotero.org library. The production import is complete.
-
-`profile` is a special migration path for an already-populated Zotero.org Desktop profile. It creates a complete backup, switches that existing profile's sync identity and server preferences, and invokes Zotero's Run JavaScript facility to force and verify the identity transition. That JavaScript does not run during ordinary synchronization and is not used by `setup`, `setup --existing`, or the normal `connect` path.
-
-The full live profile rollback and re-cutover drill is complete. The original backup restored the real profile to the `simonpeacocks` Zotero.org account with 414 items and 10 collections, a manual Zotero.org sync completed, and the profile then migrated back to the self-host identity `simon`. The final self-host sync completed with an empty local sync queue, and both the Desktop database and production API report 414 items and 10 collections. The drill exposed a changed Zotero 9 accessibility tree in the Run JavaScript editor; the migration runner now falls back to the editor's native paste and Command-R interaction while retaining the operation-result and full-sync verification that prevents a failed paste from being reported as success.
-
-## Migrate An Existing Personal Library
-
-The migration commands are dry-run by default. Use a dedicated Zotero.org API key for the one-time source read and the self-host owner key for target writes:
+You need a Cloudflare account, Node.js 20 or newer or Bun, and an R2 Object Read & Write token scoped to the attachment bucket. Put credentials in a private environment file or pass them through the CLI's `--*-file` options; do not commit them.
 
 ```bash
-export ZOTERO_IMPORT_API_KEY='<zotero.org key>'
-export SELFHOST_API_KEY='<self-host owner key>'
+export CLOUDFLARE_ACCOUNT_ID='<account id>'
+export R2_ACCESS_KEY_ID='<bucket-scoped R2 access key>'
+export R2_SECRET_ACCESS_KEY='<bucket-scoped R2 secret>'
 
-npx zotero-selfhost-server import --url https://your-worker.example.com
-npx zotero-selfhost-server import --url https://your-worker.example.com \
-  --recovery-manifest ~/.config/zotero-selfhost/recovery-files.json
-npx zotero-selfhost-server import --url https://your-worker.example.com --execute
-
-# Close Zotero before the execute step
-npx zotero-selfhost-server profile --url https://your-worker.example.com
-npx zotero-selfhost-server profile --url https://your-worker.example.com --execute
-```
-
-The `profile` command is the backed-up existing-profile migration path. For a new or unlinked Zotero profile, use native account linking instead: close Zotero, run `npx zotero-selfhost-server connect --url https://your-worker.example.com --execute`, reopen Zotero, and choose Settings → Sync → Link Account. Zotero then opens the self-hosted login page, receives its own device key, stores it, and uses its normal sync engine without Developer Tools or UI automation.
-
-An optional version-1 recovery manifest maps unavailable attachment keys to reviewed local archive files. Relative paths resolve from the manifest:
-
-```json
-{
-  "version": 1,
-  "files": {
-    "ABCD2345": "/path/to/recovered-book.pdf"
-  }
-}
-```
-
-The importer hashes these files during planning and again before upload. It does not modify Zotero.org or the local Zotero profile.
-
-## Install
-
-The package exposes one `zotero-selfhost` executable. Common package runners invoke the same published CLI:
-
-```bash
 npx zotero-selfhost-server setup
-bunx zotero-selfhost-server setup
-pnpx zotero-selfhost-server setup
-yarn dlx zotero-selfhost-server setup
 ```
 
-From a repository checkout today:
+The setup command authenticates with Cloudflare through Wrangler, creates or reuses the D1 database and R2 bucket, applies migrations, deploys the Worker and Durable Object, installs Worker secrets, and returns the first owner API key. The CLI does not save that key; store it in a password manager and in a private `SELFHOST_API_KEY` environment variable when another command needs it.
 
-```bash
-bun install
-bun run cli -- setup
-```
-
-Before setup, create an R2 **Object Read & Write** API token scoped only to the `zotero-selfhost-attachments` bucket. Set `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` in the environment (or use the CLI's corresponding `--*-file` options). These credentials stay in Worker secrets and are used only to sign short-lived, object-specific upload URLs.
-
-`setup` authenticates with Wrangler, creates or reuses the final D1/R2 resources, applies migrations, deploys the Worker and streaming Durable Object, generates the file-URL signing secret, installs the R2 signing credentials, and returns the first owner API key. The CLI does not save the API key.
-
-Save that owner key as `SELFHOST_API_KEY` in a private environment file with mode `0600`. With Zotero closed, configure native account linking:
-
-```bash
-npx zotero-selfhost-server connect --url https://your-worker.example.com
-npx zotero-selfhost-server connect --url https://your-worker.example.com --execute
-```
-
-Then open Zotero and choose Settings → Sync → Link Account. Enter the owner API key on your own Worker's HTTPS login page. Zotero receives a separate device key; the owner key is not stored in the Zotero profile.
-
-For a Worker created with the Deploy to Cloudflare button:
+If the Deploy to Cloudflare button created the resources first, finish initialization with:
 
 ```bash
 npx zotero-selfhost-server setup --existing \
   --url https://your-worker.example.workers.dev
 ```
 
-The source repository is public and the deploy button points at the repository root, where Cloudflare can read the package and Wrangler configuration directly. A complete fresh-account button deployment is still an explicit release test rather than a claimed completed result.
+## Connect Zotero Desktop
 
-## Recovery
-
-Client API keys are replaceable credentials; they are not the recovery root. If every owner key is lost, authenticate through the owning Cloudflare account:
+For a new or currently unlinked profile, close Zotero and run the connection command once as a dry run, then execute it:
 
 ```bash
-npx zotero-selfhost-server recover
+npx zotero-selfhost-server connect --url https://your-worker.example.com
+npx zotero-selfhost-server connect --url https://your-worker.example.com --execute
 ```
 
-The CLI installs a temporary recovery secret, creates a replacement owner key, and removes the secret. D1 and R2 are not reset. There is no permanent root username or password.
+Reopen Zotero and choose **Settings → Sync → Link Account**. Zotero opens the login page on your own Worker. Enter the owner API key there; the server creates a separate device key that Zotero stores and uses for ordinary synchronization.
 
-## Storage And Sync
+The connection command backs up and updates the selected profile's `user.js`. It does not run JavaScript inside Zotero and does not copy an existing Zotero.org library.
 
-- D1 stores users, keys, library versions, metadata, deletions, full-text state, groups, collections, and attachment records.
-- R2 stores attachment bytes.
-- The self-host installation owner has unlimited logical Zotero storage quota; actual capacity and billing are governed by that installation's Cloudflare R2 account.
-- Direct-capable clients upload files below 64 MiB with one presigned R2 PUT and larger files with presigned multipart PUTs. Both use the same attachment authorization and registration records. Stock Zotero retains its compatible form-POST transport because R2 does not support presigned HTML form POST.
-- `ZoteroStreamHub` holds live WebSocket subscriptions only. A committed library mutation produces `topicUpdated`; clients then use their normal HTTP sync path to fetch data.
-- A Zotero.org API key is an optional one-time importer input. It is not a credential for this server and is never a Worker secret.
+## Migrate An Existing Library
 
-Zotero Desktop can be pointed at a custom API server. The stock Zotero mobile apps currently hard-code Zotero's API base, so this project is building toward a first-party iPhone and iPad application that uses the server's HTTP and streaming protocols directly. The intended mobile scope includes self-hosted synchronization, offline PDF and EPUB reading, annotations, and Calibre-like metadata enrichment without making a maintained Zotero mobile fork a product dependency.
-
-## Development And Compatibility
+Create a dedicated Zotero.org API key with read access to the personal library. The import command copies metadata, settings, available attachments, and full-text state into the self-hosted server. It does not delete or modify Zotero.org.
 
 ```bash
-# Production-shaped local Worker: destructive test administration is absent
-bun run dev
+export ZOTERO_IMPORT_API_KEY='<one-time Zotero.org key>'
+export SELFHOST_API_KEY='<self-host owner key>'
 
-# Isolated compatibility Worker/resources for the official oracle and smoke
-bun run dev:compatibility
+# Inventory and plan only
+npx zotero-selfhost-server import --url https://your-worker.example.com
 
-# Format/lint, generated binding types, TypeScript, workerd tests, package test
+# Perform the resumable import
+npx zotero-selfhost-server import --url https://your-worker.example.com --execute
+```
+
+If the existing Desktop profile is already populated and linked to Zotero.org, complete the server import first. Then close Zotero, inspect the backed-up profile cutover plan, and execute it:
+
+```bash
+npx zotero-selfhost-server profile --url https://your-worker.example.com
+npx zotero-selfhost-server profile --url https://your-worker.example.com --execute
+```
+
+The profile command is a specialized migration path. It creates a complete backup before changing the existing profile's server identity, and it supports restoring that backup with `profile --rollback <backup-path> --execute`.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `setup` | Provision and deploy a new Cloudflare installation, then create the first owner key. |
+| `setup --existing` | Finish secrets and owner initialization after Deploy to Cloudflare provisioned the resources. |
+| `connect` | Configure a new or unlinked Zotero Desktop profile for the self-hosted server. |
+| `import` | Plan or execute a resumable, non-destructive copy from Zotero.org. |
+| `profile` | Back up and migrate an already-populated Desktop profile after the server import. |
+| `profile --rollback` | Restore a backup created by the profile migration command. |
+| `recover` | Use Cloudflare account authentication to create a replacement owner key without resetting D1 or R2. |
+| `acceptance` | Run an A → B → A synchronization check with disposable Desktop profiles. |
+| `admin restore-d1` | Restore and verify a D1 SQL backup. Available from the current repository source and planned for the next package release. |
+| `admin copy-r2` | Copy and verify every object between two R2 buckets. Available from the current repository source and planned for the next package release. |
+| `admin empty-r2-drill` | Empty only an explicitly named restore-drill bucket. Available from the current repository source and planned for the next package release. |
+
+All migration commands are dry-run-first. Add `--execute` only after reviewing their plan. Run the current source checkout with `bun run cli -- <command>`; use `npx`, `bunx`, `pnpx`, or `yarn dlx` for published releases.
+
+## How Storage And Synchronization Work
+
+- D1 stores users, API keys, library versions, metadata, deletions, settings, groups, collections, full-text state, and attachment records.
+- R2 stores attachment bytes. The installation's actual storage capacity and billing are governed by its Cloudflare account.
+- Small direct-capable uploads use one signed R2 PUT. Larger direct-capable uploads use signed multipart PUTs. Stock Zotero retains its compatible form-POST upload transport.
+- `ZoteroStreamHub` holds authenticated WebSocket subscriptions. A committed mutation emits `topicUpdated`; clients then use the normal HTTP synchronization protocol to retrieve changes.
+- A Zotero.org API key is an optional, one-time importer credential. It is never a Worker secret and is not required for a new self-hosted library.
+
+## Testing Model
+
+The test layers deliberately remain separate because they catch different failures.
+
+| Layer | Ownership | What it proves | Normal trigger |
+| --- | --- | --- | --- |
+| `tests/*.test.ts` | This project | The Worker runs inside Cloudflare's `workerd` runtime with isolated D1, R2, Durable Object, WebSocket, and WASM behavior. | Every `bun run check` and CI push. |
+| `cli/tests` | This project | The Node-compatible CLI plans, imports, migrates, packages, and refuses unsafe recovery operations correctly. | Every `bun run check` and CI push. |
+| `compatibility/*.ts` and `*.mjs` | This project | The pinned upstream checkout is authentic and the external test runner can target the isolated candidate safely. | Weekly smoke and manual oracle runs. |
+| `compatibility/vendor/dataserver/tests/remote` | Zotero upstream | The server's public HTTP behavior matches Zotero's own independent assertions. | A 30-test weekly smoke; the complete suite is manual before compatibility milestones. |
+| `tests/live` | This project | Real Cloudflare resources and real Zotero Desktop behavior work end to end. | Explicit manual release verification. |
+
+The production Worker returns `404` for `/test/*`. Destructive setup helpers exist only in the separately configured compatibility-test Worker and its isolated data resources.
+
+From a source checkout:
+
+```bash
+bun install --frozen-lockfile
+
+# Formatting, linting, generated bindings, TypeScript, Workers runtime,
+# CLI tests, and npm package verification
 bun run check
 
-# Materialize and run the independently pinned upstream test oracle
+# Download the exact pinned Zotero oracle and run its focused smoke
 bun run compat:setup
 bun run test:oracle:smoke
+
+# Run the complete pinned upstream suite against an isolated candidate
+bun run test:oracle
+
+# Confirm the Worker still packages for deployment without deploying it
+bun run deploy:dry-run
 ```
 
-The production Worker returns `404` for `/test/*`. The compatibility configuration uses separate Worker, D1, and R2 names and requires an explicit test administrator token.
+See [`compatibility/README.md`](compatibility/README.md) for ownership, safety, and command details.
 
-## Documentation
+## Recovery And Security
 
-- [CLI and operator command reference](docs/cli.md)
-- [Cloudflare production and migration runbook](docs/cloudflare-production-runbook.md)
-- [Compatibility harness](compatibility/README.md)
-- [Known differences](compatibility/known-differences.md)
-- [Project shape](docs/zotero-selfhost-understanding.md)
+Client and owner API keys are replaceable credentials; they are not the recovery root. If every owner key is lost, `recover` authenticates through the owning Cloudflare account, installs a temporary recovery secret, creates a replacement owner key, and removes the temporary secret. It does not reset library data.
+
+Keep Cloudflare, R2, owner, device, and Zotero.org credentials out of source control and command output. Use Worker secrets for deployed credentials and private environment or key files for local commands. Production must never enable compatibility-test bindings or expose destructive `/test/*` routes.
+
+The complete backup, restore, import, and cutover procedure is in [`docs/cloudflare-production-runbook.md`](docs/cloudflare-production-runbook.md).
+
+## Documentation And Support
+
+- [`docs/cli.md`](docs/cli.md) — complete CLI and operator reference.
+- [`docs/cloudflare-production-runbook.md`](docs/cloudflare-production-runbook.md) — deployment, import, recovery, backup, restore, and custom-domain operations.
+- [`compatibility/README.md`](compatibility/README.md) — test ownership, the pinned Zotero oracle, and safe reproduction commands.
+- [`compatibility/known-differences.md`](compatibility/known-differences.md) — upstream-pending cases and deliberate scope decisions.
+- [`compatibility/verification-history.md`](compatibility/verification-history.md) — dated measured results from specific revisions and deployments.
+- [`TODO.md`](TODO.md) — open work only.
+- [`CHANGELOG.md`](CHANGELOG.md) — completed work and release history.
+
+Coding agents should read [`AGENTS.md`](AGENTS.md). Agents helping someone deploy and connect an installation can use the portable [`deploy-zotero-selfhost` skill](.agents/skills/deploy-zotero-selfhost/SKILL.md).
+
+Use [GitHub Issues](https://github.com/chikingsley/zotero-selfhost/issues) for reproducible defects and support requests. Do not include API keys, Cloudflare tokens, private library content, or attachment URLs in an issue.
 
 ## License
 
-MIT for this project's original code and documentation. Third-party test oracles and dependencies retain their own licenses.
+MIT for this project's original code and documentation. Third-party dependencies and the ignored upstream Zotero test checkout retain their own licenses.

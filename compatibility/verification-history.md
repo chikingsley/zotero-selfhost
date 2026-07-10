@@ -1,8 +1,14 @@
-# Candidate Server - Official Test Status
+# Compatibility Verification History
 
-## Isolated release candidate
+This file records dated results from specific source revisions and deployments. It is not an automatically generated statement about the current branch; use the linked GitHub Actions badges and rerun the relevant command when current evidence is required.
 
-Latest isolated compatibility verification: 2026-07-10 against `https://zotero-selfhost-compatibility.cheez2012.workers.dev/`, Worker version `bbc6bf92-2a35-4f95-b865-c5189d1a0528`, D1 database `zotero-selfhost-compatibility-db`, and R2 bucket `zotero-selfhost-compatibility-attachments`. A disposable Zotero Desktop profile also completed live metadata, deleted-note, full-text, and zipped-attachment synchronization with its compatibility streaming URL enabled while an authenticated WebSocket received the committed `topicUpdated` notification.
+## 2026-07-10 source checkpoint
+
+Source commit `7993087` passed `bun run check` with 24 Workers-runtime tests and 9 Node-compatible CLI tests. Its manually dispatched weekly workflow also materialized the pinned Zotero checkout, passed the 30-test upstream `general,version` smoke against an isolated local Worker, and confirmed that the tracked upstream ref still matched the lock.
+
+## 2026-07-10 isolated release candidate
+
+The isolated compatibility verification ran against `https://zotero-selfhost-compatibility.cheez2012.workers.dev/`, Worker version `bbc6bf92-2a35-4f95-b865-c5189d1a0528`, D1 database `zotero-selfhost-compatibility-db`, and R2 bucket `zotero-selfhost-compatibility-attachments`. A disposable Zotero Desktop profile also completed live metadata, deleted-note, full-text, and zipped-attachment synchronization with its compatibility streaming URL enabled while an authenticated WebSocket received the committed `topicUpdated` notification.
 
 The first diagnostic run reported `446 passing`, `22 pending`, and `5 failing` in 25 minutes. One oversized-note request ended with a transient socket close and then passed in a focused `10/10` rerun. The other four reports came from upstream full-text tests directly invoking a DynamoDB helper, which cannot operate on the candidate's D1 state and received an R2 XML response through the AWS endpoint environment.
 
@@ -10,9 +16,9 @@ The runner now redirects only that upstream infrastructure helper through a trac
 
 Final clean complete-suite result after adding the D1 adapter: `451 passing`, `22 upstream-pending`, `0 failing` in 26 minutes. The optional host `bsdiff`, `xdelta3`, and `vcdiff` commands were unavailable, so the upstream file test skipped those CLI-generated patch variants; the same algorithms remain covered by the Workers-runtime WASM fixtures.
 
-## Cloudflare D1/R2 live path
+## 2026-07-09 Cloudflare D1/R2 live path
 
-Latest real-client verification: 2026-07-09T09:04:06Z against
+Real-client verification at 2026-07-09T09:04:06Z against
 `https://zotero.peacockery.studio/`, Worker version
 `410d4f5e-b8c9-472c-9216-6fe9e938f922`.
 
@@ -59,9 +65,9 @@ Notes:
   subcases when `bsdiff`, `xdelta3`, and `vcdiff` are not installed, but the
   Zotero test case itself passes.
 
-## Full official v3 live compatibility
+## 2026-07-09 full official v3 live compatibility
 
-Latest broad live run: 2026-07-09T09:03:43Z against
+The broad live run at 2026-07-09T09:03:43Z targeted
 `https://zotero.peacockery.studio/`, Worker version
 `410d4f5e-b8c9-472c-9216-6fe9e938f922`.
 
@@ -99,7 +105,7 @@ Previously failing areas now covered green in the broad live run:
 
 There are no known failing official v3 API slices in the latest live run.
 
-## In-memory local path
+## 2026-07-08 historical in-memory local path
 
 Historical scores from the removed in-memory path follow. This path is no
 longer executable or part of the fast regression gate.
@@ -135,9 +141,9 @@ the current Zotero schema at
 `compatibility/vendor/dataserver/htdocs/zotero-schema/schema.json`. See
 `compatibility/README.md` for the refresh command.
 
-## Local Workers runtime safety net
+## 2026-07-09 local Workers-runtime checkpoint
 
-Current fast gate: Cloudflare Workers Vitest integration with the tracked `wrangler.jsonc`, all six D1 migrations, isolated local D1/R2/Durable Object bindings, and requests through the Worker's exported `fetch()` handler.
+The measured fast gate at this checkpoint used the Cloudflare Workers Vitest integration with the tracked `wrangler.jsonc`, all six D1 migrations, isolated local D1/R2/Durable Object bindings, and requests through the Worker's exported `fetch()` handler.
 
 - `23 passing`, `0 failing` across health/OpenAPI, test-user persistence,
   general item flow, D1 version preconditions, migration state, direct R2

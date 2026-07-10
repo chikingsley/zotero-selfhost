@@ -1,6 +1,6 @@
 # TODO
 
-This file contains open work only. Completed changes belong in `CHANGELOG.md`; measured protocol results belong in `compatibility/candidate-status.md`.
+This file contains open work only. Completed changes belong in `CHANGELOG.md`; dated protocol results belong in `compatibility/verification-history.md`.
 
 Current status: the production Worker, personal library, attachment storage, migrated Zotero Desktop profile, Cloudflare recovery drill, and live Desktop rollback/re-cutover drill are working. The items below are public-release work and additional compatibility acceptance; they do not indicate that the current personal deployment is broken.
 

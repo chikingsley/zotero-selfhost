@@ -231,7 +231,9 @@ const update = async (lock: OracleLock): Promise<void> => {
   await setup(next, schema.bytes);
   await Bun.write(lockPath, `${JSON.stringify(next, null, 2)}\n`);
   console.log(`Updated ${lockPath}`);
-  console.log("Run the official suite before updating candidate-status.md.");
+  console.log(
+    "Run the official suite before updating verification-history.md."
+  );
 };
 
 const main = async (): Promise<void> => {

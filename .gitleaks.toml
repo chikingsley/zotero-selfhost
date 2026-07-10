@@ -1,5 +1,0 @@
-[allowlist]
-description = "Known non-secret protocol constants"
-regexes = [
-  '''23456789ABCDEFGHIJKLMNPQRSTUVWXYZ''',
-]

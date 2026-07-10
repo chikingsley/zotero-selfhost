@@ -1,161 +1,127 @@
-# Compatibility Plan
+# Zotero Compatibility Harness
 
-This folder tracks how we turn Zotero's official API behavior into a buildable compatible server.
+This directory is a test harness, not a second server implementation. It contains the code this project uses to download, pin, configure, and run Zotero's upstream black-box HTTP tests against an isolated candidate server.
 
-## Source Of Truth
+## Ownership
 
-Primary oracle, materialized locally when needed:
+| Location | Owner | Purpose |
+| --- | --- | --- |
+| `../tests/*.test.ts` | This project | Fast Cloudflare Workers-runtime tests with isolated D1, R2, Durable Object, WebSocket, and WASM behavior. |
+| `oracle.ts`, `run-zotero-tests.ts`, configs, and adapters | This project | Materialize and authenticate the upstream checkout, configure a candidate target, and bridge test-only infrastructure differences. |
+| `vendor/dataserver/` | Zotero upstream | Ignored checkout of `https://github.com/zotero/dataserver.git` at the exact commit in `oracle.lock.json`. |
+| `vendor/dataserver/tests/remote/tests/3` | Zotero upstream | Independent Mocha assertions against the public Zotero API v3 HTTP contract. |
+| `../tests/live/` | This project | Explicit tests against actual Cloudflare resources or Zotero Desktop. |
 
-- `vendor/dataserver/tests/remote`
-- `oracle.lock.json` pins the exact upstream commit and public schema digest.
+Do not edit or commit `vendor/dataserver`. The upstream test suite remains independent precisely because this project does not rewrite its assertions.
 
-Important files:
+The files `fulltext-state-adapter.mjs`, `fulltext-state-loader.mjs`, and `fulltext-state-register.mjs` are ours. They redirect four upstream test-infrastructure operations that normally call DynamoDB into the isolated candidate's authenticated D1 test adapter. They do not replace Zotero's protocol assertions.
 
-- `vendor/dataserver/tests/remote/run_tests`
-- `vendor/dataserver/tests/remote/config/default.json`
-- `vendor/dataserver/tests/remote/setup.js`
-- `vendor/dataserver/tests/remote/api3.js`
-- `vendor/dataserver/tests/remote/tests/3`
+## Why The Layers Stay Separate
 
-The remote tests are HTTP-level tests. That makes them reusable: first against official `dataserver`, later against our candidate server.
+Workers-runtime tests answer whether our implementation works with Cloudflare's actual runtime APIs and bindings. The upstream Zotero oracle answers whether an independent client sees the HTTP behavior it expects. Live tests answer whether hosted Cloudflare services and real Zotero Desktop work together.
 
-`compatibility/vendor/` is intentionally ignored. It contains the reproducible
-local checkout used only by this harness, not product source. Bootstrap the
-exact tracked oracle from the repository root:
+Merging these layers would weaken them. Our runtime tests need implementation access; the upstream oracle is valuable because it has none.
+
+## Pinned Source Of Truth
+
+`oracle.lock.json` records the upstream repository, ref, exact 40-character commit, schema URL, and schema SHA-256. `compat:setup` verifies all of them before running upstream code.
+
+The ignored checkout is created at `compatibility/vendor/dataserver`. Its important upstream paths are:
+
+- `tests/remote/run_tests`
+- `tests/remote/config/default.json`
+- `tests/remote/setup.js`
+- `tests/remote/api3.js`
+- `tests/remote/tests/3`
+- `htdocs/zotero-schema/schema.json`
+
+The upstream dependency installation uses `npm ci --ignore-scripts`. Its test-only dependency tree currently reports advisories in XML, Mocha, and transitive tooling packages. Those dependencies are never bundled into the Worker or npm CLI package. The checkout remains unmodified so dependency remediation belongs upstream.
+
+## Commands And Safety
+
+| Command | What it does | Writes or resets data? | Automatic? |
+| --- | --- | --- | --- |
+| `bun run compat:setup` | Clones or updates the ignored checkout to the locked commit, verifies the schema hash, and installs upstream test dependencies with lifecycle scripts disabled. | Writes only ignored compatibility checkout files and dependencies. | Weekly CI and manual setup. |
+| `bun run compat:status` | Reports the lock, checkout, schema, dependency state, cleanliness, and latest upstream ref. | Read-only; uses the network. | Manual. |
+| `bun run compat:check-upstream` | Exits unsuccessfully if Zotero's tracked upstream ref has advanced beyond our locked commit. | Read-only; uses the network. | Weekly CI. |
+| `bun run compat:update` | Advances the ignored checkout, downloads the current schema, and rewrites `oracle.lock.json`. | Changes a tracked lock file and must be reviewed. | Never automatic. |
+| `bun run dev:compatibility` | Applies migrations to the isolated local compatibility D1 database and starts the compatibility-test Worker. | Uses only separately named local compatibility resources. | Started by weekly CI; manual for local runs. |
+| `bun run test:oracle:smoke` | Runs Zotero's upstream `general` and `version` suites against the configured candidate. | The upstream setup route resets isolated compatibility tables and test users. Never point it at production. | Weekly CI and manual. |
+| `bun run test:oracle` | Runs the complete pinned Zotero v3 suite against the configured candidate. | Destructive to the configured isolated compatibility data. Never point it at production. | Manual before compatibility milestones. |
+| `bun run deploy:compatibility` | Deploys the explicitly separate compatibility Worker, D1 database, and R2 bucket. | Changes live compatibility resources. | Manual and requires explicit Cloudflare authorization. |
+| `bun run smoke:desktop` | Drives a disposable Zotero Desktop profile against the configured compatibility deployment. | Creates and removes disposable test records and keys. | Manual. |
+
+The production Worker returns `404` for `/test/*` before credential handling. The destructive setup and full-text state adapters exist only when `DEPLOYMENT_MODE` is `compatibility-test` and must use isolated D1 and R2 resources.
+
+## What Runs Automatically
+
+Every push and pull request runs `bun run check`, which includes this project's Workers-runtime tests, CLI tests, type checks, formatting/linting, and package verification.
+
+The weekly `Compatibility oracle` workflow performs these steps:
+
+1. Materialize the exact pinned upstream checkout.
+2. Start an isolated local compatibility Worker.
+3. Run the 30 upstream `general` and `version` smoke tests.
+4. Fail if Zotero's tracked upstream ref no longer matches our pin.
+
+The weekly workflow does not run the complete upstream suite and never changes `oracle.lock.json`. A new upstream commit requires a reviewed `compat:update`, the focused smoke, the relevant protocol slices, and the complete suite before the pin change is committed.
+
+## Local Use
+
+Materialize and inspect the oracle once:
 
 ```bash
 bun run compat:setup
 bun run compat:status
 ```
 
-`compat:setup` checks out the locked commit, runs `npm ci --ignore-scripts`
-against Zotero's upstream package lock, and installs only the schema matching
-the tracked SHA-256. `compat:status` compares the pin, checkout, schema,
-dependencies, and current upstream ref without changing them.
-
-The scheduled `Compatibility oracle` workflow materializes the pin weekly,
-runs the official `general,version` smoke against an isolated local Worker, and
-then runs `compat:check-upstream`. It fails visibly when either the pinned smoke
-regresses or Zotero advances, but never updates the lock automatically.
-Advancing the pin remains a reviewed change followed by the official smoke and
-full suites.
-
-The current upstream test lock reports npm advisories in its test-only XML,
-Mocha, and transitive tooling dependencies. Those packages remain confined to
-the ignored oracle checkout, are never bundled into the Worker, and install
-with lifecycle scripts disabled. Dependency remediation belongs upstream so
-the oracle remains an unmodified Zotero test suite.
-
-To intentionally advance the oracle:
+Start the isolated candidate in one terminal:
 
 ```bash
-bun run compat:update
+bun run dev:compatibility
+```
+
+Run the focused upstream smoke in another terminal:
+
+```bash
 bun run test:oracle:smoke
+```
+
+Run the complete suite only when its broader runtime and destructive test-data cost is appropriate:
+
+```bash
 bun run test:oracle
 ```
 
-`compat:update` advances the lock only after the new checkout and schema can be
-materialized. Run the official suite before recording a new score in
-`candidate-status.md`.
+## Configuration
 
-The complete upstream suite intentionally remains complete. Against local
-Wrangler it currently reports six environment-only failures: one HTTPS storage
-URL assertion, one direct AWS S3 fixture operation, and four direct DynamoDB
-full-text state operations. Those are verified against the live Cloudflare
-candidate; local application-level D1/R2 behavior is covered by Workers Vitest.
+`compatibility/config/candidate.ci.json` is tracked and contains only disposable localhost test values for the scheduled smoke. It contains no deployment credentials.
 
-## Safety Layers
+Create ignored local configurations from the corresponding examples:
 
-| Layer | Command | Purpose |
-| --- | --- | --- |
-| Workers runtime | `bun run test:runtime` | Fast tests inside `workerd` with isolated D1/R2/DO bindings and real migrations. |
-| Official Zotero oracle | `bun run test:oracle:smoke` / `bun run test:oracle` | Unmodified upstream black-box HTTP compatibility tests. |
-| Live client | `bun run smoke:desktop` | Real Zotero Desktop sync against the configured deployment. |
+- `compatibility/config/candidate.example.json` → `candidate.local.json`
+- `compatibility/config/reference.example.json` → `reference.local.json`
 
-The official Mocha suite stays upstream-owned. Do not translate it into Vitest;
-the Workers Vitest suite characterizes this implementation, while the pinned
-upstream suite remains an independent oracle.
+The candidate config's upstream-defined `rootUsername` and `rootPassword` fields map to Basic username `compatibility` and `COMPATIBILITY_TEST_ADMIN_TOKEN`. They are test-administrator inputs required by Zotero's runner, not a production root account.
 
-## Test Phases
+For an explicitly isolated deployed candidate, use an ignored config such as `candidate-cloudflare.local.json` with the compatibility Worker URL and compatibility R2 bucket. When `cloudflareR2FromApiToken` is enabled, the runner derives temporary S3-compatible environment values from the ignored Cloudflare token without writing R2 credentials into the repository.
+
+The runner refuses to start when the checkout commit, origin, dependencies, schema location, or schema hash differs from `oracle.lock.json`.
+
+## Protocol Phases
 
 | Phase | Test areas | Purpose |
 | --- | --- | --- |
-| 0 | `general`, `schema`, `version` | Prove API base behavior, schema exposure, and sync version mechanics. |
-| 1 | `item`, `collection`, `tag`, `settings`, `note` | Core personal-library metadata sync. |
-| 2 | `file` | Stored attachments, upload registration, file view/download behavior. |
-| 3 | `annotation`, `search`, `relation`, `sort`, `params`, `cache` | Rich library behavior needed by serious clients. |
-| 4 | `keys`, `permissions`, `loginSessions` | Auth and access model. |
-| 5 | `group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin` | Covered by the broad official v3 run; `tts` is pending/skipped upstream. |
+| 0 | `general`, `schema`, `version` | API base behavior, schema exposure, and sync version mechanics. |
+| 1 | `item`, `collection`, `tag`, `settings`, `note` | Core personal-library metadata synchronization. |
+| 2 | `file` | Attachment authorization, upload, registration, view, and download behavior. |
+| 3 | `annotation`, `search`, `relation`, `sort`, `params`, `cache` | Rich library behavior and query semantics. |
+| 4 | `keys`, `permissions`, `loginSessions` | Authentication and access-control behavior. |
+| 5 | `group`, `publications`, `fulltext`, `translation`, `tts`, `storage-admin` | Broader API coverage; `tts` remains pending upstream. |
 
-## Current Target
+## Results And Differences
 
-The deployed candidate currently targets the full official v3 API suite against
-Cloudflare D1/R2, with all non-pending tests green.
+- [`verification-history.md`](verification-history.md) records dated results from specific revisions and deployments. It is historical evidence, not automatically current status.
+- [`known-differences.md`](known-differences.md) records upstream-pending cases, harness caveats, and deliberate product-scope decisions.
 
-The remaining work is product packaging around that compatible API:
-
-- Real deployment onboarding/auth decisions.
-- License and public naming/trademark decisions.
-- Optional web UI work. Zotero Desktop is configurable against the candidate API;
-  the official Zotero Web Library is not a drop-in self-hosted client.
-
-## Harness Strategy
-
-Do not edit Zotero's official tests in place.
-
-Preferred approach:
-
-1. Keep the official checkout pinned and unmodified.
-2. Run the fast Workers-runtime suite on every `bun run check`.
-3. Run focused official slices while refactoring their corresponding behavior.
-4. Run the complete official suite before compatibility milestones.
-5. Copy no upstream assertions; add local characterization tests only for this
-   implementation's Worker/D1/R2 integration.
-
-## Status Files
-
-- `candidate-status.md`: latest measured live and local compatibility status.
-- `known-differences.md`: accepted deviations and harness caveats.
-
-## Runner
-
-Use `run-zotero-tests.ts` to run Zotero's official remote tests with runtime config supplied from this folder.
-
-Examples:
-
-```bash
-# One-time oracle setup
-bun run compat:setup
-
-# Terminal 1: explicitly isolated destructive compatibility Worker
-bun run dev:compatibility
-
-# Terminal 2: score it against Zotero's official tests
-bun run test:oracle:smoke
-```
-
-Config files:
-
-- `compatibility/config/reference.local.json`
-- `compatibility/config/candidate.local.json`
-
-Create them from the corresponding `.example.json` files. Local config files
-are ignored because they can contain test credentials or local endpoints. The
-runner refuses to start if the checkout commit, dependencies, or schema differ
-from `oracle.lock.json`.
-
-`compatibility/config/candidate.ci.json` is the tracked configuration for the
-scheduled local smoke. It contains only disposable localhost test values; it
-does not contain deployment credentials.
-
-The candidate config's upstream-owned `rootUsername`/`rootPassword` fields map
-to Basic username `compatibility` and `COMPATIBILITY_TEST_ADMIN_TOKEN`. They do
-not represent a production root account. Production uses owner API keys and
-returns `404` for `/test/*` administration.
-
-For the deployed Cloudflare D1/R2 candidate, use an ignored config such as
-`compatibility/config/candidate-cloudflare.local.json` with the live
-`apiURLPrefix`, `s3Bucket`, `awsRegion: "auto"`, and
-`cloudflareR2FromApiToken: true`. Run the harness from the repository root so Bun loads
-the ignored `.env`; the harness derives temporary AWS SDK environment
-variables from the Cloudflare token without writing R2 secrets into the repo.
+When recording a new result, include the date, tested commit or Worker version, target resources, exact command, passing/pending/failing counts, and whether the run was local, isolated Cloudflare, or production. Do not overwrite a measurement with an unsupported claim about the current source.
