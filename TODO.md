@@ -62,8 +62,11 @@ Active product queue. Measured protocol results live in
   after the final backup and smoke-tree removal: 10 collections, 414 items,
   169 files, 48 settings, and 164 full-text records verified against stable
   Zotero.org source version 1394.
-- [ ] Migrate the backed-up existing Desktop profile now that the import state
-  is verified, then complete a normal full merge sync and rollback check.
+- [x] Migrate the backed-up existing Desktop profile now that the import state
+  is verified, then complete a normal full merge sync against the production
+  custom domain.
+- [ ] Exercise the explicit Desktop rollback command against the real migration
+  backup, verify the Zotero.org profile restoration, and repeat the cutover.
 - [ ] Publish `zotero-selfhost-server` to npm and execute all four documented
   package-runner forms against the published artifact.
 - [ ] Make the repository public and validate the Deploy to Cloudflare button

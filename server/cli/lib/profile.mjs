@@ -357,7 +357,7 @@ const backupProfile = ({ backupRoot, dataDir, profileDir, profilesRoot }) => {
   }));
   const manifest = {
     createdAt: new Date().toISOString(),
-    databaseFiles: databasePaths.map(basename),
+    databaseFiles: databasePaths.map((databasePath) => basename(databasePath)),
     dataDir,
     files,
     profileDir,

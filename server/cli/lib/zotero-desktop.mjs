@@ -172,9 +172,26 @@ const submitLoader = async ({ resultPath, scriptPath }) => {
 tell application "System Events"
   tell process "Zotero"
     set frontmost to true
-    keystroke "a" using command down
-    keystroke "v" using command down
-    keystroke "r" using command down
+    tell window "Run JavaScript"
+      repeat 120 times
+        if exists group 1 then
+          if exists group 2 of group 1 then
+            if exists scroll area 1 of group 2 of group 1 then exit repeat
+          end if
+        end if
+        delay 0.5
+      end repeat
+      if not (exists scroll area 1 of group 2 of group 1) then
+        error "Zotero Run JavaScript editor did not finish loading"
+      end if
+      set editorElement to text area 1 of group 1 of group 1 of UI element 1 of scroll area 1 of group 2 of group 1
+      set focused of editorElement to true
+      set value of editorElement to the clipboard
+      if (value of editorElement as text) does not contain "zotero-selfhost operation started" then
+        error "Zotero Run JavaScript loader verification failed"
+      end if
+      click button "Run" of group 1 of group 1
+    end tell
   end tell
 end tell
 `);
