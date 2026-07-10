@@ -3,8 +3,29 @@ import { schemaVersionHeader } from "../../domain/schema";
 import { publishStreamingNotifications } from "../../domain/streaming";
 import { compatibility } from "./router";
 
+const exposedResponseHeaders = [
+  "Content-Disposition",
+  "ETag",
+  "Last-Modified-Version",
+  "Link",
+  "Location",
+  "Retry-After",
+  "Total-Results",
+  "Zotero-API-Version",
+  "Zotero-File-Compressed",
+  "Zotero-File-MD5",
+  "Zotero-File-Modification-Time",
+  "Zotero-File-Size",
+  "Zotero-Library-Version",
+  "Zotero-Schema-Version",
+  "Zotero-Storage-Quota",
+  "Zotero-Storage-Usage",
+  "Zotero-Storage-UserID",
+].join(", ");
+
 compatibility.use("*", async (c, next) => {
   await next();
+  c.header("Access-Control-Expose-Headers", exposedResponseHeaders);
   c.header("Zotero-API-Version", "3");
   c.header("Zotero-Schema-Version", schemaVersionHeader());
 });

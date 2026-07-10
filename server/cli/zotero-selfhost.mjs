@@ -162,7 +162,7 @@ const setup = async (options) => {
   const bootstrapToken = generateSecret();
   putSecret("BOOTSTRAP_TOKEN", bootstrapToken, workerName, options);
   try {
-    const result = await requestJSON(
+    const result = await requestEphemeralControl(
       new URL("/_selfhost/bootstrap", serverURL),
       {
         body: {
@@ -206,7 +206,7 @@ const recover = async (options) => {
   const recoveryToken = generateSecret();
   putSecret("RECOVERY_TOKEN", recoveryToken, workerName, options);
   try {
-    const result = await requestJSON(
+    const result = await requestEphemeralControl(
       new URL("/_selfhost/recovery/keys", serverURL),
       {
         body: {
@@ -477,6 +477,18 @@ const requestJSON = async (url, { body, token }) => {
     parsed = { message: text };
   }
   return { body: parsed, status: response.status };
+};
+
+const requestEphemeralControl = async (url, options) => {
+  let result;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    result = await requestJSON(url, options);
+    if (result.status !== 403 && result.status !== 404) {
+      return result;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 750));
+  }
+  return result;
 };
 
 const parseArguments = (arguments_) => {

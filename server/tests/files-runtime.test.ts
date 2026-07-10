@@ -85,12 +85,27 @@ describe("attachment storage through the Worker runtime", () => {
       method: "POST",
     });
     expect(register.status).toBe(204);
+    expect(register.headers.get("Zotero-Library-Version")).toBeTruthy();
+    expect(register.headers.get("Zotero-Library-Version")).toBe(
+      register.headers.get("Last-Modified-Version")
+    );
 
     const download = await runtimeRequest(`/users/1/items/${itemKey}/file`, {
       headers: { Authorization: authorization },
       redirect: "manual",
     });
     expect(download.status).toBe(302);
+    expect(download.headers.get("Access-Control-Expose-Headers")).toContain(
+      "Zotero-File-Modification-Time"
+    );
+    expect(download.headers.get("Zotero-File-Compressed")).toBe("No");
+    expect(download.headers.get("Zotero-File-MD5")).toBe(
+      "5d41402abc4b2a76b9719d911017c592"
+    );
+    expect(download.headers.get("Zotero-File-Modification-Time")).toBe(
+      "1700000000000"
+    );
+    expect(download.headers.get("Zotero-File-Size")).toBe("5");
     const location = download.headers.get("Location");
     expect(location).toBeTruthy();
     if (!location) {

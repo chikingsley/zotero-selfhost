@@ -500,6 +500,7 @@ compatibility.patch("/groups/:groupID/items/:itemKey/file", async (c) => {
 
   return c.body(null, 204, {
     "Last-Modified-Version": `${result.version}`,
+    "Zotero-Library-Version": `${result.version}`,
   });
 });
 
@@ -604,6 +605,7 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
 
     return c.body(null, 204, {
       "Last-Modified-Version": `${result.version}`,
+      "Zotero-Library-Version": `${result.version}`,
     });
   }
 
@@ -674,6 +676,7 @@ compatibility.post("/groups/:groupID/items/:itemKey/file", async (c) => {
   if (existingAssociation.associated) {
     return c.json({ exists: 1 }, 200, {
       "Last-Modified-Version": `${existingAssociation.version}`,
+      "Zotero-Library-Version": `${existingAssociation.version}`,
     });
   }
 
@@ -1103,9 +1106,9 @@ compatibility.get("/users/:userID/items/:itemKey/file", async (c) => {
     return c.text("File not found", 404);
   }
 
-  return c.redirect(
+  return redirectToAttachment(
     await getAttachmentRawFileURL(c, "u", userID, c.req.param("itemKey"), file),
-    302
+    file
   );
 });
 
@@ -1206,6 +1209,7 @@ compatibility.patch("/users/:userID/items/:itemKey/file", async (c) => {
 
   return c.body(null, 204, {
     "Last-Modified-Version": `${result.version}`,
+    "Zotero-Library-Version": `${result.version}`,
   });
 });
 
@@ -1279,6 +1283,7 @@ compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
 
     return c.body(null, 204, {
       "Last-Modified-Version": `${result.version}`,
+      "Zotero-Library-Version": `${result.version}`,
     });
   }
 
@@ -1345,6 +1350,7 @@ compatibility.post("/users/:userID/items/:itemKey/file", async (c) => {
   if (existingAssociation.associated) {
     return c.json({ exists: 1 }, 200, {
       "Last-Modified-Version": `${existingAssociation.version}`,
+      "Zotero-Library-Version": `${existingAssociation.version}`,
     });
   }
 

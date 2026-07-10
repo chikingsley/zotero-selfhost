@@ -70,8 +70,14 @@ export const runZoteroScript = async ({
   await mkdir(workspace, { mode: 0o700, recursive: true });
   const scriptPath = join(workspace, "operation.js");
   const resultPath = join(workspace, "result.json");
+  const debugOutputPath = join(workspace, "zotero-debug.log");
+  const debugErrorPath = join(workspace, "zotero-debug-error.log");
   await rm(resultPath, { force: true });
   await writeFile(scriptPath, wrapScript(body, resultPath), { mode: 0o600 });
+  await Promise.all([
+    writeFile(debugOutputPath, "", { mode: 0o600 }),
+    writeFile(debugErrorPath, "", { mode: 0o600 }),
+  ]);
 
   const previousClipboard = await run("pbpaste", [], {
     allowFailure: true,
@@ -82,7 +88,12 @@ export const runZoteroScript = async ({
       "-n",
       "-a",
       zoteroApp,
+      "-o",
+      debugOutputPath,
+      "--stderr",
+      debugErrorPath,
       "--args",
+      "-ZoteroDebugText",
       "--profile",
       profileDir,
       "--new-instance",
@@ -100,7 +111,7 @@ export const runZoteroScript = async ({
 };
 
 export const killProfile = async (profileDir) => {
-  await run("pkill", ["-f", `zotero --profile ${profileDir}`], {
+  await run("pkill", ["-f", "--", `--profile ${profileDir}`], {
     allowFailure: true,
   });
 };
@@ -111,7 +122,7 @@ const waitForProfile = async (profileDir) => {
     if (
       processes.stdout
         .split(/\r?\n/u)
-        .some((line) => line.includes(`zotero --profile ${profileDir}`))
+        .some((line) => line.includes(`--profile ${profileDir}`))
     ) {
       return;
     }
