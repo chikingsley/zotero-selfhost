@@ -150,6 +150,54 @@ describe("Zotero compatibility bootstrap", () => {
     expect(fetchedBody.data.tags[0].tag).toBe("CC");
   });
 
+  it("reconciles a full Zotero Desktop batch of 100 item keys", async () => {
+    const setup = await request("/test/setup?u=1&u2=2", {
+      body: " ",
+      headers: {
+        Authorization: compatibilityAdminAuth,
+      },
+      method: "POST",
+    });
+    const setupBody = (await setup.json()) as {
+      user1: { apiKey: string };
+    };
+    const keys = Array.from(
+      { length: 100 },
+      (_, index) => `K${index.toString().padStart(7, "0")}`
+    );
+
+    await env.DB.batch(
+      keys.map((key, index) =>
+        env.DB.prepare(
+          `INSERT INTO items
+             (library_type, library_id, item_key, version, item_type, data_json)
+           VALUES ('user', 1, ?, ?, 'book', ?)`
+        ).bind(
+          key,
+          index + 1,
+          JSON.stringify({ itemType: "book", key, title: `Item ${index}` })
+        )
+      )
+    );
+    await env.DB.prepare(
+      "UPDATE libraries SET version = 100 WHERE library_type = 'user' AND library_id = 1"
+    ).run();
+
+    const response = await request(
+      `/users/1/items?itemKey=${keys.join(",")}&includeTrashed=1`,
+      {
+        headers: {
+          Authorization: `Bearer ${setupBody.user1.apiKey}`,
+        },
+      }
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Array<{ key: string }>;
+    expect(body).toHaveLength(keys.length);
+    expect(new Set(body.map((item) => item.key))).toEqual(new Set(keys));
+  });
+
   it("uses the shared item and full-text routes for group libraries", async () => {
     await request("/test/setup?u=1&u2=2", {
       body: " ",

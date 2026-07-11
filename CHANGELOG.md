@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed Zotero Desktop's 100-key reconciliation request against D1 by chunking item-key lookups below the database's bound-parameter ceiling. Added a Workers-runtime regression test for the exact `itemKey=...&includeTrashed=1` request shape discovered by the live disposable Desktop peer drill.
 - Rewrote the public README around installation, Desktop connection, migration, commands, architecture, testing, recovery, and support; rewrote the compatibility harness guide around ownership and safety; renamed its dated candidate report to verification history; and clarified the locally authored compatibility-mode runtime test. Added the cross-agent `AGENTS.md` convention plus a portable Agent Skills deployment workflow, and removed the unused Gitleaks configuration.
 - Consolidated the CLI into one command-oriented tree, promoted verified D1/R2 recovery to explicit `admin` CLI commands, made CLI packaging remove its entire generated directory, and moved the ignored pinned Zotero checkout under the compatibility harness with a weekly non-mutating upstream-pin check. Replaced the unexplained root patch directory with documented `bsdiff-wasm` Worker vendor support and explicit removal criteria.
 - Flattened the deployable Worker package from `server/` into the repository root so local development, CI, npm publishing, and the Deploy to Cloudflare button share one project root.

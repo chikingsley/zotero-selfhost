@@ -29,6 +29,8 @@ interface D1ItemRow {
   version: number;
 }
 
+const ITEM_KEY_QUERY_CHUNK_SIZE = 98;
+
 const parseItemRow = (row: D1ItemRow): ItemRecord => ({
   ...(typeof row.created_by_user_id === "number"
     ? { createdByUserID: row.created_by_user_id }
@@ -237,27 +239,52 @@ export class D1ItemStorage {
     libraryID: number,
     itemKeys: string[]
   ): Promise<Map<string, ItemRecord>> {
-    if (itemKeys.length === 0) {
-      return new Map();
-    }
-
-    const rows = await this.db
-      .prepare(
-        `SELECT item_key, version, data_json, created_by_user_id, last_modified_by_user_id
-         FROM items
-         WHERE library_type = ?
-           AND library_id = ?
-           AND item_key IN (${itemKeys.map(() => "?").join(",")})`
-      )
-      .bind(libraryType, libraryID, ...itemKeys)
-      .all<D1ItemRow>();
+    const rows = await this.getItemRowsByKey(
+      libraryType,
+      libraryID,
+      itemKeys,
+      true
+    );
 
     return new Map(
-      rows.results.map((row) => {
+      rows.map((row) => {
         const item = parseItemRow(row);
         return [item.key, item];
       })
     );
+  }
+
+  private async getItemRowsByKey(
+    libraryType: LibraryType,
+    libraryID: number,
+    itemKeys: string[],
+    includeDeleted: boolean
+  ): Promise<D1ItemRow[]> {
+    const uniqueKeys = [...new Set(itemKeys)];
+    const rows: D1ItemRow[] = [];
+    for (
+      let offset = 0;
+      offset < uniqueKeys.length;
+      offset += ITEM_KEY_QUERY_CHUNK_SIZE
+    ) {
+      const chunk = uniqueKeys.slice(
+        offset,
+        offset + ITEM_KEY_QUERY_CHUNK_SIZE
+      );
+      const result = await this.db
+        .prepare(
+          `SELECT item_key, version, data_json, created_by_user_id, last_modified_by_user_id
+           FROM items
+           WHERE library_type = ?
+             AND library_id = ?
+             ${includeDeleted ? "" : "AND deleted_at IS NULL"}
+             AND item_key IN (${chunk.map(() => "?").join(",")})`
+        )
+        .bind(libraryType, libraryID, ...chunk)
+        .all<D1ItemRow>();
+      rows.push(...result.results);
+    }
+    return rows;
   }
 
   private async deleteForLibrary(
@@ -629,32 +656,25 @@ export class D1ItemStorage {
   ): Promise<ItemListResult> {
     const version = await this.libraryVersions.get(libraryType, libraryID);
     const rows = itemKeys?.length
-      ? await this.db
-          .prepare(
-            `SELECT item_key, version, data_json, created_by_user_id, last_modified_by_user_id
-             FROM items
-             WHERE library_type = ?
-               AND library_id = ?
-               AND deleted_at IS NULL
-               AND item_key IN (${itemKeys.map(() => "?").join(",")})
-             ORDER BY version ASC`
-          )
-          .bind(libraryType, libraryID, ...itemKeys)
-          .all<D1ItemRow>()
-      : await this.db
-          .prepare(
-            `SELECT item_key, version, data_json, created_by_user_id, last_modified_by_user_id
-             FROM items
-             WHERE library_type = ?
-               AND library_id = ?
-               AND deleted_at IS NULL
-             ORDER BY version ASC`
-          )
-          .bind(libraryType, libraryID)
-          .all<D1ItemRow>();
+      ? await this.getItemRowsByKey(libraryType, libraryID, itemKeys, false)
+      : (
+          await this.db
+            .prepare(
+              `SELECT item_key, version, data_json, created_by_user_id, last_modified_by_user_id
+               FROM items
+               WHERE library_type = ?
+                 AND library_id = ?
+                 AND deleted_at IS NULL
+               ORDER BY version ASC`
+            )
+            .bind(libraryType, libraryID)
+            .all<D1ItemRow>()
+        ).results;
 
     return {
-      items: rows.results.map(parseItemRow),
+      items: rows
+        .map(parseItemRow)
+        .sort((left, right) => left.version - right.version),
       version,
     };
   }
